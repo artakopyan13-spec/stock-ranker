@@ -20,7 +20,7 @@ export function BarChart({ points, currency = "USD", title, height = 150 }: { po
   return (
     <figure className="w-full">
       {title && <figcaption className="text-xs text-muted mb-1">{title}</figcaption>}
-      <svg viewBox={`0 0 ${w} ${height}`} className="w-full h-auto" role="img" aria-label={title ?? "bar chart"}>
+      <svg viewBox={`0 0 ${w} ${height}`} className="w-full h-auto" style={{ maxWidth: 560 }} role="img" aria-label={title ?? "bar chart"}>
         <line x1={pad.l} x2={w - pad.r} y1={zeroY} y2={zeroY} stroke="var(--line)" />
         {points.map((p, i) => {
           const x = pad.l + i * slot + (slot - bw) / 2;
@@ -80,7 +80,7 @@ export function LineChart({ labels, series, title, height = 150, unit = "%" }: {
   return (
     <figure className="w-full">
       {title && <figcaption className="text-xs text-muted mb-1">{title}</figcaption>}
-      <svg viewBox={`0 0 ${w} ${height}`} className="w-full h-auto" role="img" aria-label={title ?? "line chart"}>
+      <svg viewBox={`0 0 ${w} ${height}`} className="w-full h-auto" style={{ maxWidth: 560 }} role="img" aria-label={title ?? "line chart"}>
         {ticks.map((t) => (
           <g key={t}>
             <line x1={pad.l} x2={w - pad.r} y1={y(t)} y2={y(t)} stroke="var(--line)" strokeDasharray="2 3" />

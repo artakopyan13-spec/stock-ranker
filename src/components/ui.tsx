@@ -29,7 +29,8 @@ export function Tag({ children, tone = "muted" }: { children: ReactNode; tone?: 
 }
 
 export function StaleBadge({ asOf, days = 7 }: { asOf: string; days?: number }) {
-  const ageDays = Math.floor((Date.now() - new Date(asOf).getTime()) / 86_400_000);
+  const [now] = useState(() => Date.now());
+  const ageDays = Math.floor((now - new Date(asOf).getTime()) / 86_400_000);
   if (ageDays <= days) return null;
   return (
     <span className="chip chip-red" title={`Data is ${ageDays} days old`}>

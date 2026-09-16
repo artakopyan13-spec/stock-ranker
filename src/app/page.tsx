@@ -1,69 +1,92 @@
-import Image from "next/image";
+import Link from "next/link";
+import { db } from "@/lib/db";
+import { env } from "@/lib/env";
+import { DEMO_TICKERS } from "@/lib/demo";
+import { listWatchlists } from "@/lib/watchlists";
+import { SearchBox } from "@/components/SearchBox";
+import { CreateWatchlist } from "@/components/WatchlistTools";
+import { ActionChip } from "@/components/ui";
+import { FCF_EMOJI } from "@/lib/analysis/schema";
+import { ago } from "@/lib/format";
 
-export default function Home() {
+export const dynamic = "force-dynamic";
+
+export default async function Home() {
+  const e = env();
+  const prisma = db();
+  const [watchlists, recent] = await Promise.all([
+    listWatchlists(),
+    prisma.analysis.findMany({ where: { verified: true }, orderBy: { createdAt: "desc" }, take: 40, select: { symbol: true, rating: true, action: true, fcfVerdict: true, createdAt: true, ticker: { select: { name: true, isDemo: true } } } }),
+  ]);
+  const latestBySymbol = new Map<string, (typeof recent)[number]>();
+  for (const r of recent) if (!latestBySymbol.has(r.symbol)) latestBySymbol.set(r.symbol, r);
+  const tiles = e.DEMO_MODE ? [...latestBySymbol.values()].filter((r) => r.ticker.isDemo) : [...latestBySymbol.values()].slice(0, 12);
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert h-5 w-[100px]"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the{" "}
-            <code className="rounded bg-black/[.06] px-1.5 py-0.5 font-mono text-[0.9em] dark:bg-white/[.08]">
-              page.tsx
-            </code>{" "}
-            file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
+    <div className="space-y-8">
+      <section className="pt-6">
+        <h1 className="text-3xl md:text-4xl font-semibold tracking-tight">
+          Search a stock. Get the full <span className="text-gold">FCF-first</span> analysis.
+        </h1>
+        <p className="text-muted mt-2 max-w-2xl">
+          Live data → the <code>stock-analysis</code> framework via Claude → rating, bull &amp; bear, catalysts, 12-month view. Every number carries its source and date. Unverifiable means unverified, never invented.
+        </p>
+        <div className="mt-5 max-w-2xl">
+          <SearchBox autoFocus />
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert h-[14px] w-4"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={14}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+        {!e.ANTHROPIC_API_KEY && !e.DEMO_MODE && <p className="mt-2 text-xs text-red">ANTHROPIC_API_KEY is not set — new analyses will fail until it is. Cached analyses still render.</p>}
+      </section>
+
+      <section>
+        <div className="flex items-baseline justify-between">
+          <h2 className="text-sm font-semibold uppercase tracking-wider text-muted">{e.DEMO_MODE ? "Demo tickers" : "Recently analyzed"}</h2>
+          {e.DEMO_MODE && <span className="text-xs text-dim">pre-analyzed · served from cache · {DEMO_TICKERS.join(", ")}</span>}
         </div>
-      </main>
+        {tiles.length === 0 ? (
+          <div className="card p-6 text-sm text-muted mt-3">{e.DEMO_MODE ? "Demo data has not been seeded yet. Run `npm run seed:demo` once with an API key, commit data/demo, and redeploy." : "Nothing analyzed yet. Search a ticker above."}</div>
+        ) : (
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-3">
+            {tiles.map((t) => (
+              <Link key={t.symbol} href={`/t/${t.symbol}`} className="card p-4 no-underline text-text hover:border-purple transition-colors">
+                <div className="flex items-center justify-between">
+                  <span className="font-semibold">{t.symbol}</span>
+                  <span className="text-gold font-semibold">{t.rating}/10</span>
+                </div>
+                <div className="text-xs text-muted truncate">{t.ticker.name}</div>
+                <div className="mt-2 flex items-center gap-2 text-xs">
+                  <ActionChip action={t.action as "BUY" | "HOLD" | "SELL"} />
+                  <span>{FCF_EMOJI[t.fcfVerdict as keyof typeof FCF_EMOJI]}</span>
+                  <span className="text-dim ml-auto">{ago(t.createdAt)}</span>
+                </div>
+              </Link>
+            ))}
+          </div>
+        )}
+      </section>
+
+      <section className="grid md:grid-cols-2 gap-4">
+        <div>
+          <h2 className="text-sm font-semibold uppercase tracking-wider text-muted mb-3">Watchlists</h2>
+          {watchlists.length === 0 ? (
+            <div className="card p-5 text-sm text-muted">No watchlists yet. Create one to get nightly rankings, alerts and the morning digest.</div>
+          ) : (
+            <ul className="space-y-2">
+              {watchlists.map((w) => (
+                <li key={w.id}>
+                  <Link href={`/w/${w.slug}`} className="card p-4 flex items-center justify-between no-underline text-text hover:border-purple transition-colors">
+                    <span>
+                      <span className="font-semibold">{w.name}</span>
+                      <span className="text-xs text-muted ml-2">{w.symbols.length} tickers</span>
+                    </span>
+                    <span className="text-xs text-dim">{w.symbols.slice(0, 6).join(" · ")}{w.symbols.length > 6 ? " …" : ""}</span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+        <CreateWatchlist disabled={e.DEMO_MODE} />
+      </section>
     </div>
   );
 }

@@ -1,7 +1,7 @@
 import { db } from "@/lib/db";
 import { env } from "@/lib/env";
 import { Analysis, DISCLAIMER, FCF_EMOJI } from "@/lib/analysis/schema";
-import { getRankings, type RankingRow } from "@/lib/rankings";
+import { getRankings } from "@/lib/rankings";
 import { shareUrlFor } from "@/lib/share";
 
 /**
