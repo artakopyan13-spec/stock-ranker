@@ -5,16 +5,19 @@ export interface WatchlistSummary {
   slug: string;
   name: string;
   symbols: string[];
+  userId: string | null;
   updatedAt: Date;
 }
 
 export function slugify(name: string): string {
-  return name
-    .toLowerCase()
-    .trim()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 40) || "list";
+  return (
+    name
+      .toLowerCase()
+      .trim()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 40) || "list"
+  );
 }
 
 export function normalizeSymbols(input: string[]): string[] {
@@ -26,14 +29,28 @@ export function normalizeSymbols(input: string[]): string[] {
   return out;
 }
 
-export async function listWatchlists(): Promise<WatchlistSummary[]> {
-  const rows = await db().watchlist.findMany({ include: { items: { orderBy: { position: "asc" } } }, orderBy: { createdAt: "asc" } });
-  return rows.map((w) => ({ id: w.id, slug: w.slug, name: w.name, symbols: w.items.map((i) => i.symbol), updatedAt: w.updatedAt }));
+function toSummary(w: { id: string; slug: string; name: string; userId: string | null; updatedAt: Date; items: { symbol: string }[] }): WatchlistSummary {
+  return { id: w.id, slug: w.slug, name: w.name, userId: w.userId, symbols: w.items.map((i) => i.symbol), updatedAt: w.updatedAt };
+}
+
+/** A user's own watchlists (plus seeded/global ones when `includeGlobal`). */
+export async function listWatchlists(userId?: string | null, includeGlobal = false): Promise<WatchlistSummary[]> {
+  const where = userId ? (includeGlobal ? { OR: [{ userId }, { userId: null }] } : { userId }) : includeGlobal ? {} : { userId: null };
+  const rows = await db().watchlist.findMany({ where, include: { items: { orderBy: { position: "asc" } } }, orderBy: { createdAt: "asc" } });
+  return rows.map(toSummary);
 }
 
 export async function getWatchlist(slug: string): Promise<WatchlistSummary | null> {
   const w = await db().watchlist.findUnique({ where: { slug }, include: { items: { orderBy: { position: "asc" } } } });
-  return w ? { id: w.id, slug: w.slug, name: w.name, symbols: w.items.map((i) => i.symbol), updatedAt: w.updatedAt } : null;
+  return w ? toSummary(w) : null;
+}
+
+/** True when the watchlist belongs to the user (or the user is allowed to edit a global one as admin). */
+export async function ownsWatchlist(slug: string, userId: string | null, isAdmin = false): Promise<boolean> {
+  if (!userId) return false;
+  const w = await db().watchlist.findUnique({ where: { slug }, select: { userId: true } });
+  if (!w) return false;
+  return w.userId === userId || (isAdmin && w.userId === null);
 }
 
 async function ensureTickers(symbols: string[]): Promise<void> {
@@ -47,7 +64,7 @@ async function ensureTickers(symbols: string[]): Promise<void> {
   }
 }
 
-export async function createWatchlist(name: string, symbols: string[]): Promise<WatchlistSummary> {
+export async function createWatchlist(name: string, symbols: string[], userId: string | null = null): Promise<WatchlistSummary> {
   const prisma = db();
   const clean = normalizeSymbols(symbols);
   let slug = slugify(name);
@@ -55,9 +72,10 @@ export async function createWatchlist(name: string, symbols: string[]): Promise<
   while (await prisma.watchlist.findUnique({ where: { slug } })) slug = `${slugify(name)}-${++n}`;
   await ensureTickers(clean);
   const w = await prisma.watchlist.create({
-    data: { slug, name: name.trim() || slug, items: { create: clean.map((symbol, position) => ({ symbol, position })) } },
+    data: { slug, name: name.trim() || slug, userId, items: { create: clean.map((symbol, position) => ({ symbol, position })) } },
+    include: { items: { orderBy: { position: "asc" } } },
   });
-  return { id: w.id, slug: w.slug, name: w.name, symbols: clean, updatedAt: w.updatedAt };
+  return toSummary(w);
 }
 
 export async function setWatchlistSymbols(slug: string, symbols: string[]): Promise<WatchlistSummary | null> {
@@ -79,8 +97,8 @@ export async function deleteWatchlist(slug: string): Promise<boolean> {
   return res.count > 0;
 }
 
-/** Every symbol on any watchlist, deduped, in first-seen order. */
+/** Every symbol any user is watching, deduped — the shared universe the cron refreshes. */
 export async function allWatchedSymbols(): Promise<string[]> {
-  const lists = await listWatchlists();
-  return normalizeSymbols(lists.flatMap((l) => l.symbols));
+  const items = await db().watchlistItem.findMany({ select: { symbol: true } });
+  return normalizeSymbols(items.map((i) => i.symbol));
 }

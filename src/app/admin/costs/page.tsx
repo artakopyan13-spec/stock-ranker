@@ -1,3 +1,5 @@
+import { redirect } from "next/navigation";
+import { isAdmin } from "@/auth";
 import { db } from "@/lib/db";
 import { env } from "@/lib/env";
 import { estimatePerAnalysisUsd } from "@/lib/ai/pricing";
@@ -17,12 +19,16 @@ async function loadCosts() {
     prisma.refreshRun.findMany({ orderBy: { startedAt: "desc" }, take: 14 }),
     analysesToday(),
     prisma.watchlistItem.groupBy({ by: ["symbol"] }),
+    prisma.usageLog.groupBy({ by: ["symbol"], _count: true, _sum: { usd: true }, where: { symbol: { not: null } }, orderBy: { _sum: { usd: "desc" } }, take: 10 }),
+    prisma.usageLog.groupBy({ by: ["userId"], _count: true, _sum: { usd: true }, where: { userId: { not: null } }, orderBy: { _sum: { usd: "desc" } }, take: 10 }),
   ]);
 }
 
 export default async function CostsPage() {
+  if (!(await isAdmin())) redirect("/signin");
   const e = env();
-  const [logs, runs, today, watched] = await loadCosts();
+  const [logs, runs, today, watched, topTickers, topUsers] = await loadCosts();
+  const userEmails = new Map((await db().user.findMany({ where: { id: { in: topUsers.map((u) => u.userId!).filter(Boolean) } }, select: { id: true, email: true } })).map((u) => [u.id, u.email]));
   const byDay = new Map<string, { usd: number; calls: number; input: number; output: number }>();
   for (const l of logs) {
     const k = dayKey(l.createdAt);
@@ -70,6 +76,23 @@ export default async function CostsPage() {
               {runs.length === 0 && <tr><td colSpan={8} className="text-muted">No cron runs yet. Trigger one: <code>GET /api/cron/refresh</code> with the cron secret.</td></tr>}
             </tbody>
           </table>
+        </div>
+      </section>
+
+      <section className="grid md:grid-cols-2 gap-4">
+        <div>
+          <h2 className="text-sm font-semibold uppercase tracking-wider text-muted mb-2">Top tickers by spend</h2>
+          <div className="card overflow-x-auto"><table className="tbl w-full text-sm"><thead><tr><th>Ticker</th><th>Analyses</th><th>USD</th></tr></thead><tbody>
+            {topTickers.map((t) => (<tr key={t.symbol}><td>{t.symbol}</td><td>{t._count}</td><td className="text-gold">${(t._sum.usd ?? 0).toFixed(2)}</td></tr>))}
+            {topTickers.length === 0 && <tr><td colSpan={3} className="text-muted">None yet.</td></tr>}
+          </tbody></table></div>
+        </div>
+        <div>
+          <h2 className="text-sm font-semibold uppercase tracking-wider text-muted mb-2">Top users by spend</h2>
+          <div className="card overflow-x-auto"><table className="tbl w-full text-sm"><thead><tr><th>User</th><th>Analyses</th><th>USD</th></tr></thead><tbody>
+            {topUsers.map((u) => (<tr key={u.userId}><td className="text-xs">{userEmails.get(u.userId!) ?? u.userId}</td><td>{u._count}</td><td className="text-gold">${(u._sum.usd ?? 0).toFixed(2)}</td></tr>))}
+            {topUsers.length === 0 && <tr><td colSpan={3} className="text-muted">None yet.</td></tr>}
+          </tbody></table></div>
         </div>
       </section>
 

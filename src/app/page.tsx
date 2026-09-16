@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { env } from "@/lib/env";
 import { DEMO_TICKERS } from "@/lib/demo";
 import { listWatchlists } from "@/lib/watchlists";
+import { currentUser } from "@/auth";
 import { SearchBox } from "@/components/SearchBox";
 import { CreateWatchlist } from "@/components/WatchlistTools";
 import { ActionChip } from "@/components/ui";
@@ -14,8 +15,9 @@ export const dynamic = "force-dynamic";
 export default async function Home() {
   const e = env();
   const prisma = db();
+  const user = await currentUser();
   const [watchlists, recent] = await Promise.all([
-    listWatchlists(),
+    listWatchlists(user?.id ?? null, true),
     prisma.analysis.findMany({ where: { verified: true }, orderBy: { createdAt: "desc" }, take: 40, select: { symbol: true, rating: true, action: true, fcfVerdict: true, createdAt: true, ticker: { select: { name: true, isDemo: true } } } }),
   ]);
   const latestBySymbol = new Map<string, (typeof recent)[number]>();
@@ -85,7 +87,7 @@ export default async function Home() {
             </ul>
           )}
         </div>
-        <CreateWatchlist disabled={e.DEMO_MODE} />
+        {user ? <CreateWatchlist disabled={e.DEMO_MODE} /> : <div className="card p-5 text-sm text-muted"><Link href="/signin">Sign in</Link> to save watchlists, get nightly rankings, and run fresh analyses.</div>}
       </section>
     </div>
   );

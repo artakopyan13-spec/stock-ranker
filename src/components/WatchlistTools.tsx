@@ -41,7 +41,8 @@ export function CreateWatchlist({ disabled }: { disabled?: boolean }) {
 }
 
 /** Edit symbols + "Analyze all" (sequential, respects the daily cap) + compare view. */
-export function WatchlistTools({ slug, symbols, rows, demo }: { slug: string; symbols: string[]; rows: RankingRow[]; demo: boolean }) {
+export function WatchlistTools({ slug, symbols, rows, demo, canEdit = true }: { slug: string; symbols: string[]; rows: RankingRow[]; demo: boolean; canEdit?: boolean }) {
+  const readOnly = demo || !canEdit;
   const router = useRouter();
   const [text, setText] = useState(symbols.join(", "));
   const [saving, setSaving] = useState(false);
@@ -95,19 +96,19 @@ export function WatchlistTools({ slug, symbols, rows, demo }: { slug: string; sy
     <div className="space-y-4">
       <div className="card p-4 space-y-3">
         <div className="flex flex-wrap gap-2 items-center">
-          <input value={text} onChange={(e) => setText(e.target.value)} className="flex-1 min-w-[240px]" disabled={demo} aria-label="Tickers" />
-          <button type="button" className="btn" onClick={save} disabled={saving || demo}>
+          <input value={text} onChange={(e) => setText(e.target.value)} className="flex-1 min-w-[240px]" disabled={readOnly} aria-label="Tickers" />
+          <button type="button" className="btn" onClick={save} disabled={saving || readOnly}>
             {saving ? "Saving…" : "Save tickers"}
           </button>
-          <button type="button" className="btn btn-primary" onClick={() => analyzeAll(true)} disabled={demo || progress?.startsWith("Analyzing")}>
+          <button type="button" className="btn btn-primary" onClick={() => analyzeAll(true)} disabled={readOnly || progress?.startsWith("Analyzing")}>
             Analyze missing / stale
           </button>
-          <button type="button" className="btn" onClick={() => analyzeAll(false)} disabled={demo || progress?.startsWith("Analyzing")}>
+          <button type="button" className="btn" onClick={() => analyzeAll(false)} disabled={readOnly || progress?.startsWith("Analyzing")}>
             Re-analyze all
           </button>
         </div>
         {progress && <div className="text-sm text-muted">{progress}</div>}
-        {demo && <div className="text-xs text-dim">Demo mode: watchlists are read-only and served from cached analyses.</div>}
+        {readOnly && <div className="text-xs text-dim">{demo ? "Demo mode: watchlists are read-only." : "You can view and compare this watchlist. Sign in as its owner to edit or analyze."}</div>}
       </div>
 
       <Scoreboard rows={rows} selectable selected={selected} onToggle={(s) => setSelected((cur) => (cur.includes(s) ? cur.filter((x) => x !== s) : cur.length < 4 ? [...cur, s] : cur))} />
