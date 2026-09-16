@@ -1,0 +1,169 @@
+// Source of truth. `npm run prisma:schema` writes prisma/schema.prisma with the
+// datasource provider taken from DATABASE_PROVIDER (sqlite | postgresql).
+// Only types supported by BOTH providers are used: String, Int, Float, Boolean, DateTime.
+// JSON payloads are stored as String and validated with Zod on read.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "__PROVIDER__"
+}
+
+model Ticker {
+  symbol     String   @id
+  name       String
+  exchange   String?
+  currency   String   @default("USD")
+  sector     String?
+  industry   String?
+  shareToken String   @unique
+  isDemo     Boolean  @default(false)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  analyses  Analysis[]
+  snapshots RawSnapshot[]
+  items     WatchlistItem[]
+}
+
+/// Normalized StockData from a provider, cached for RAW_CACHE_MINUTES.
+model RawSnapshot {
+  id        String   @id @default(cuid())
+  symbol    String
+  provider  String
+  payload   String
+  fetchedAt DateTime @default(now())
+
+  ticker Ticker @relation(fields: [symbol], references: [symbol], onDelete: Cascade)
+
+  @@index([symbol, fetchedAt])
+}
+
+/// One verified analysis. Kept forever so rating changes can be diffed.
+model Analysis {
+  id               String   @id @default(cuid())
+  symbol           String
+  version          Int
+  promptVersion    String
+  model            String
+  source           String   // ondemand | cron | seed
+  payload          String   // JSON Analysis
+  rating           Int
+  action           String   // BUY | HOLD | SELL
+  fcfVerdict       String   // healthy | thin | negative
+  fcfMarginPct     Float?
+  revenueGrowthPct Float?
+  forwardPE        Float?
+  priceAtAnalysis  Float?
+  verified         Boolean  @default(false)
+  usdCost          Float    @default(0)
+  dataAsOf         DateTime
+  createdAt        DateTime @default(now())
+
+  ticker Ticker  @relation(fields: [symbol], references: [symbol], onDelete: Cascade)
+  alerts Alert[]
+
+  @@unique([symbol, version])
+  @@index([symbol, createdAt])
+}
+
+model Watchlist {
+  id        String   @id @default(cuid())
+  slug      String   @unique
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  items   WatchlistItem[]
+  digests Digest[]
+}
+
+model WatchlistItem {
+  id          String @id @default(cuid())
+  watchlistId String
+  symbol      String
+  position    Int    @default(0)
+
+  watchlist Watchlist @relation(fields: [watchlistId], references: [id], onDelete: Cascade)
+  ticker    Ticker    @relation(fields: [symbol], references: [symbol], onDelete: Cascade)
+
+  @@unique([watchlistId, symbol])
+}
+
+/// One nightly refresh. batchId is unique so a re-run never submits twice for the same run.
+model RefreshRun {
+  id          String    @id @default(cuid())
+  runKey      String    @unique // e.g. 2026-09-16 — one run per calendar day
+  status      String    // planned | submitted | collected | failed | skipped
+  mode        String    // batch | sync
+  batchId     String?   @unique
+  tickers     String    // JSON string[] of symbols submitted
+  skipped     String    // JSON string[] of symbols skipped by smart refresh
+  startedAt   DateTime  @default(now())
+  collectedAt DateTime?
+  error       String?
+  usdCost     Float     @default(0)
+}
+
+/// The exact StockData each batch request was built from, so the collector assembles
+/// against the same numbers the model saw. Deleted after collection.
+model CronPayload {
+  id               String  @id @default(cuid())
+  runKey           String
+  symbol           String
+  data             String
+  previousTripwire String?
+
+  @@unique([runKey, symbol])
+}
+
+/// Alerts are keyed so the same event can never be sent twice.
+model Alert {
+  id         String    @id @default(cuid())
+  key        String    @unique // `${symbol}:${type}:${analysisId}`
+  symbol     String
+  type       String    // rating_change | verdict_flip | tripwire | fcf_negative
+  message    String
+  analysisId String
+  channel    String
+  sentAt     DateTime?
+  error      String?
+  createdAt  DateTime  @default(now())
+
+  analysis Analysis @relation(fields: [analysisId], references: [id], onDelete: Cascade)
+
+  @@index([symbol, createdAt])
+}
+
+model Digest {
+  id          String    @id @default(cuid())
+  key         String    @unique // `${date}:${watchlistSlug}`
+  date        String
+  watchlistId String
+  channel     String
+  payload     String    // JSON DigestPayload
+  sentAt      DateTime?
+  error       String?
+  createdAt   DateTime  @default(now())
+
+  watchlist Watchlist @relation(fields: [watchlistId], references: [id], onDelete: Cascade)
+}
+
+/// Every model call, for /admin/costs and the daily cap.
+model UsageLog {
+  id                String   @id @default(cuid())
+  symbol            String?
+  kind              String   // analysis | news_search | batch_analysis
+  model             String
+  inputTokens       Int
+  cacheReadTokens   Int      @default(0)
+  cacheWriteTokens  Int      @default(0)
+  outputTokens      Int
+  usd               Float
+  createdAt         DateTime @default(now())
+
+  @@index([createdAt])
+}
