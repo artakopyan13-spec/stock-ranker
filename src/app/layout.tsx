@@ -26,6 +26,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
             <nav className="flex items-center gap-4 text-sm text-muted">
               <Link href="/" className="text-muted hover:text-text no-underline">Search</Link>
               <Link href="/w" className="text-muted hover:text-text no-underline">Watchlists</Link>
+              <Link href="/changes" className="text-muted hover:text-text no-underline">What changed</Link>
               {!demo && <Link href="/admin/costs" className="text-muted hover:text-text no-underline">Costs</Link>}
             </nav>
             <div className="ml-auto text-xs text-dim">{demo ? "demo mode · cached analyses" : "research notebook · not financial advice"}</div>

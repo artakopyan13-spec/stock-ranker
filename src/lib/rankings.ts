@@ -1,6 +1,6 @@
 import { db } from "@/lib/db";
 import { sortRows, type RankingRow } from "@/lib/rankings-sort";
-import { Analysis, type Action, type FcfVerdict } from "@/lib/analysis/schema";
+import { Analysis } from "@/lib/analysis/schema";
 import { getWatchlist, type WatchlistSummary } from "@/lib/watchlists";
 
 export type { RankingRow, SortKey } from "@/lib/rankings-sort";

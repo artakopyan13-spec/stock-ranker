@@ -7,6 +7,9 @@ import { getLatestAnalysis, loadDataForAnalysis, persistAnalysis, VerificationFa
 import type { StockData } from "@/lib/data/types";
 import { decideRefresh } from "@/lib/cron/smart-refresh";
 import { allWatchedSymbols } from "@/lib/watchlists";
+import { effectiveLimits } from "@/lib/quota/settings";
+import { spendToday } from "@/lib/quota/spend";
+import { pruneRateLimits } from "@/lib/quota/ratelimit";
 
 export type RefreshMode = "batch" | "sync";
 
@@ -67,6 +70,17 @@ export async function runRefresh(opts: { mode?: RefreshMode; now?: Date; timeBud
   const mode: RefreshMode = opts.mode ?? "batch";
   const runKey = runKeyFor(now);
 
+  await pruneRateLimits(now);
+  const limits = await effectiveLimits();
+  if (limits.killSwitchManual || (await spendToday(now)) >= limits.spendCeilingUsd) {
+    await prisma.refreshRun.upsert({
+      where: { runKey },
+      create: { runKey, status: "skipped", mode, tickers: "[]", skipped: "[]", collectedAt: now, error: "spend ceiling / kill switch active" },
+      update: { status: "skipped", collectedAt: now, error: "spend ceiling / kill switch active" },
+    });
+    return { runKey, status: "skipped", mode, submitted: [], skipped: [], errors: [] };
+  }
+
   const existing = await prisma.refreshRun.findUnique({ where: { runKey } });
   if (existing && existing.status !== "failed") {
     return {
@@ -111,7 +125,7 @@ export async function runRefresh(opts: { mode?: RefreshMode; now?: Date; timeBud
         const result = await analyzeOnce(item.data, { previousTripwire: item.previousTripwire });
         const usage = await logUsage("analysis", result.model, result.usage, { symbol: item.symbol });
         usd += usage.usd;
-        await persistAnalysis({ data: item.data, result, source: "cron", usage, previousTripwire: item.previousTripwire });
+        await persistAnalysis({ data: item.data, result, source: "cron", usage, previousTripwire: item.previousTripwire, runKey });
         ok.push(item.symbol);
       } catch (err) {
         failed.push({ symbol: item.symbol, error: err instanceof VerificationFailedError ? "verification failed" : err instanceof Error ? err.message : String(err) });

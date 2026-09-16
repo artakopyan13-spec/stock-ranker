@@ -20,9 +20,10 @@ model Ticker {
   sector     String?
   industry   String?
   shareToken String   @unique
-  isDemo     Boolean  @default(false)
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  isDemo      Boolean  @default(false)
+  searchCount Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   analyses  Analysis[]
   snapshots RawSnapshot[]
@@ -64,7 +65,7 @@ model Analysis {
   createdAt        DateTime @default(now())
 
   ticker Ticker  @relation(fields: [symbol], references: [symbol], onDelete: Cascade)
-  alerts Alert[]
+  changes Change[]
 
   @@unique([symbol, version])
   @@index([symbol, createdAt])
@@ -74,11 +75,14 @@ model Watchlist {
   id        String   @id @default(cuid())
   slug      String   @unique
   name      String
+  userId    String?  // null = seeded/global (e.g. demo)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  items   WatchlistItem[]
-  digests Digest[]
+  user  User?           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  items WatchlistItem[]
+
+  @@index([userId])
 }
 
 model WatchlistItem {
@@ -120,36 +124,21 @@ model CronPayload {
   @@unique([runKey, symbol])
 }
 
-/// Alerts are keyed so the same event can never be sent twice.
-model Alert {
-  id         String    @id @default(cuid())
-  key        String    @unique // `${symbol}:${type}:${analysisId}`
+/// One "what changed" entry, keyed so a re-run never records the same event twice.
+model Change {
+  id         String   @id @default(cuid())
+  key        String   @unique // `${symbol}:${type}:${analysisId}`
   symbol     String
-  type       String    // rating_change | verdict_flip | tripwire | fcf_negative
+  type       String   // rating_change | verdict_flip | tripwire | fcf_negative
   message    String
   analysisId String
-  channel    String
-  sentAt     DateTime?
-  error      String?
-  createdAt  DateTime  @default(now())
+  runKey     String?  // set when produced by a nightly refresh
+  createdAt  DateTime @default(now())
 
   analysis Analysis @relation(fields: [analysisId], references: [id], onDelete: Cascade)
 
+  @@index([createdAt])
   @@index([symbol, createdAt])
-}
-
-model Digest {
-  id          String    @id @default(cuid())
-  key         String    @unique // `${date}:${watchlistSlug}`
-  date        String
-  watchlistId String
-  channel     String
-  payload     String    // JSON DigestPayload
-  sentAt      DateTime?
-  error       String?
-  createdAt   DateTime  @default(now())
-
-  watchlist Watchlist @relation(fields: [watchlistId], references: [id], onDelete: Cascade)
 }
 
 /// Every model call, for /admin/costs and the daily cap.
@@ -163,7 +152,94 @@ model UsageLog {
   cacheWriteTokens  Int      @default(0)
   outputTokens      Int
   usd               Float
+  userId            String?  // who triggered it (null = cron/system)
   createdAt         DateTime @default(now())
 
   @@index([createdAt])
+  @@index([userId, createdAt])
+}
+
+
+// ---------- Auth.js (email + Google) ----------
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String?   @unique
+  emailVerified DateTime?
+  image         String?
+  role          String    @default("user") // user | admin
+  banned        Boolean   @default(false)
+  dailyQuota    Int?      // per-user override of FREE_DAILY_FRESH_ANALYSES
+  createdAt     DateTime  @default(now())
+
+  accounts    Account[]
+  sessions    Session[]
+  watchlists  Watchlist[]
+  savedScreens SavedScreen[]
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@index([userId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+/// A user's saved screener filter set.
+model SavedScreen {
+  id        String   @id @default(cuid())
+  userId    String
+  name      String
+  filters   String   // JSON ScreenFilters
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+/// Admin-editable runtime settings (kill switch, quota defaults) — no redeploy needed.
+model Setting {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt
+}
+
+/// DB-backed rate limiter: one row per (key, window). Cheap, no Redis.
+model RateLimit {
+  key         String   @id // e.g. "user:<id>:min:<epochMinute>" or "ip:<ip>:min:<n>"
+  count       Int      @default(0)
+  windowStart DateTime @default(now())
 }

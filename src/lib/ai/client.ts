@@ -48,12 +48,13 @@ export async function logUsage(
   kind: UsageKind,
   model: string,
   u: TokenUsage,
-  opts: { symbol?: string; batch?: boolean; webSearches?: number } = {},
+  opts: { symbol?: string; batch?: boolean; webSearches?: number; userId?: string | null } = {},
 ): Promise<Usage> {
   const usd = usdFor(model, u, { batch: opts.batch, webSearches: opts.webSearches });
   await db().usageLog.create({
     data: {
       symbol: opts.symbol ?? null,
+      userId: opts.userId ?? null,
       kind,
       model,
       inputTokens: u.inputTokens,
@@ -66,18 +67,4 @@ export async function logUsage(
   return { ...u, usd };
 }
 
-function startOfUtcDay(now = new Date()): Date {
-  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
-}
-
-export async function analysesToday(): Promise<number> {
-  return db().usageLog.count({
-    where: { kind: { in: ["analysis", "batch_analysis"] }, createdAt: { gte: startOfUtcDay() } },
-  });
-}
-
-/** Throws when the on-demand cap is reached. Cron uses MAX_CRON_TICKERS instead. */
-export async function assertDailyCap(): Promise<void> {
-  const cap = env().MAX_ANALYSES_PER_DAY;
-  if ((await analysesToday()) >= cap) throw new DailyCapReachedError(cap);
-}
+export { analysesToday } from "@/lib/quota/spend";

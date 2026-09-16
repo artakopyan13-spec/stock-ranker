@@ -19,7 +19,7 @@ async function main(): Promise<void> {
   const prisma = db();
   for (const symbol of tickers) {
     console.log(`→ ${symbol}`);
-    const stored = await getOrCreateAnalysis(symbol, { force: true, onEvent: (e) => e.type === "status" && console.log(`  ${e.message}`) });
+    const stored = await getOrCreateAnalysis(symbol, { force: true, system: true, source: "seed", onEvent: (e) => e.type === "status" && console.log(`  ${e.message}`) });
     const ticker = await prisma.ticker.update({ where: { symbol }, data: { isDemo: true } });
     const analysis = { ...stored.analysis, meta: { ...stored.analysis.meta, demo: true } };
     writeFileSync(resolve(process.cwd(), `data/demo/${symbol}.json`), JSON.stringify({ shareToken: ticker.shareToken, analysis }, null, 2));

@@ -83,7 +83,7 @@ export function WatchlistTools({ slug, symbols, rows, demo }: { slug: string; sy
     setLoadingCompare(true);
     const out: Analysis[] = [];
     for (const s of selected) {
-      const res = await fetch(`/api/analysis/${s}`, { headers: { "x-api-key": "" } });
+      const res = await fetch(`/api/analysis/${s}`);
       const body = (await res.json()) as { analysis?: Analysis };
       if (body.analysis) out.push(body.analysis);
     }

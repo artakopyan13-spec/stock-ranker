@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { detectChanges } from "@/lib/alerts/detect";
+import { detectChanges } from "@/lib/changes/detect";
 import { assembleAnalysis } from "@/lib/analysis/assemble";
 import { verifyModelOutput } from "@/lib/analysis/verify";
 import { decideRefresh } from "@/lib/cron/smart-refresh";
@@ -13,34 +13,35 @@ const build = (mutate?: (m: ReturnType<typeof sampleModelOutput>) => void, d = d
   return assembleAnalysis(d, m, meta, verifyModelOutput(d, m));
 };
 
-describe("change detection", () => {
+describe("what-changed detection", () => {
   const prev = build();
 
   it("is silent when nothing changed", () => {
     expect(detectChanges(prev, build())).toEqual([]);
   });
 
-  it("alerts on a rating change with the one-line justification", () => {
+  it("records a rating change and a verdict flip with the one-line justification", () => {
     const changes = detectChanges(prev, build((m) => { m.rating.score = 6; m.rating.action = "HOLD"; }));
     expect(changes.map((c) => c.type)).toEqual(["rating_change", "verdict_flip"]);
     expect(changes[0].message).toContain("8 → 6");
+    expect(changes[1].message).toContain("BUY → HOLD");
   });
 
-  it("alerts when a tripwire triggers", () => {
-    const cur = build((m) => { m.previousTripwire = { triggered: true, reason: "Two sequential declines." }; });
+  it("records a triggered tripwire", () => {
+    const cur = build();
     cur.previousTripwire = { description: "Two declines", triggered: true, reason: "Two sequential declines." };
     expect(detectChanges(prev, cur).some((c) => c.type === "tripwire")).toBe(true);
   });
 
-  it("alerts once when FCF turns negative, not again while it stays negative", () => {
+  it("records FCF turning negative once, not while it stays negative", () => {
     const burning = { ...data, fundamentals: { ...data.fundamentals, fcfTTM: { ...data.fundamentals.fcfTTM, value: -2e9 } } };
-    const first = build((m) => { m.thesis.bear += " Cash flow is now negative."; m.rating.score = 4; m.rating.action = "HOLD"; }, burning);
+    const mutate = (m: ReturnType<typeof sampleModelOutput>) => { m.thesis.bear += " Cash flow is now negative."; m.rating.score = 4; m.rating.action = "HOLD"; };
+    const first = build(mutate, burning);
     expect(detectChanges(prev, first).some((c) => c.type === "fcf_negative")).toBe(true);
-    const second = build((m) => { m.thesis.bear += " Cash flow is now negative."; m.rating.score = 4; m.rating.action = "HOLD"; }, burning);
-    expect(detectChanges(first, second).some((c) => c.type === "fcf_negative")).toBe(false);
+    expect(detectChanges(first, build(mutate, burning)).some((c) => c.type === "fcf_negative")).toBe(false);
   });
 
-  it("treats the first analysis as a baseline (no alerts)", () => {
+  it("treats the first analysis as a baseline (no changes)", () => {
     expect(detectChanges(null, prev)).toEqual([]);
   });
 });

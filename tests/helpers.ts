@@ -106,3 +106,24 @@ export function fakeAnthropic(output: ModelOutput | string, opts: FakeOptions = 
   };
   return { client: client as unknown as Anthropic, calls };
 }
+
+/** Deletes all rows so a stateful test file starts clean regardless of file order. */
+export async function truncateAll(): Promise<void> {
+  const { db } = await import("@/lib/db");
+  const p = db();
+  await p.usageLog.deleteMany();
+  await p.change.deleteMany();
+  await p.rateLimit.deleteMany();
+  await p.setting.deleteMany();
+  await p.analysis.deleteMany();
+  await p.watchlistItem.deleteMany();
+  await p.watchlist.deleteMany();
+  await p.savedScreen.deleteMany();
+  await p.rawSnapshot.deleteMany();
+  await p.cronPayload.deleteMany();
+  await p.refreshRun.deleteMany();
+  await p.ticker.deleteMany();
+  await p.account.deleteMany();
+  await p.session.deleteMany();
+  await p.user.deleteMany();
+}

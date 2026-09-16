@@ -6,17 +6,17 @@ import { FixtureAdapter } from "@/lib/data/adapters/fixture";
 import { getLatestAnalysis, getOrCreateAnalysis, type AnalysisEvent } from "@/lib/analysis/service";
 import { createWatchlist } from "@/lib/watchlists";
 import { getRankings, sortRows } from "@/lib/rankings";
-import { buildDigest } from "@/lib/digest/build";
-import { sendPendingAlerts } from "@/lib/alerts/send";
-import { sendDailyDigest } from "@/lib/digest/send";
-import { checkApiKey, checkCronAuth } from "@/lib/auth";
-import { fakeAnthropic, loadYahooFixture, sampleModelOutput } from "./helpers";
+import { listChanges, recentRuns } from "@/lib/changes/list";
+import { recordChanges } from "@/lib/changes/detect";
+import { checkCronAuth } from "@/lib/auth";
+import { fakeAnthropic, loadYahooFixture, sampleModelOutput, truncateAll } from "./helpers";
 
 const { data } = loadYahooFixture();
 
 describe("end-to-end NVDA pipeline (fixture data + fake model)", () => {
   beforeAll(async () => {
     await resetDb();
+    await truncateAll();
     setAdapter(new FixtureAdapter());
   });
   afterAll(async () => {
@@ -27,7 +27,7 @@ describe("end-to-end NVDA pipeline (fixture data + fake model)", () => {
   it("streams data → sections → done, verifies, stores and logs cost", async () => {
     setAnthropicClient(fakeAnthropic(sampleModelOutput(data)).client);
     const events: AnalysisEvent[] = [];
-    const stored = await getOrCreateAnalysis("NVDA", { force: true, onEvent: (e) => events.push(e) });
+    const stored = await getOrCreateAnalysis("NVDA", { force: true, system: true, onEvent: (e) => events.push(e) });
 
     const types = events.map((e) => e.type);
     expect(types[0]).toBe("status");
@@ -60,7 +60,7 @@ describe("end-to-end NVDA pipeline (fixture data + fake model)", () => {
     bad.thesis.bull = "TODO fill this in later with the actual bull thesis text";
     const { client, calls } = fakeAnthropic(bad);
     setAnthropicClient(client);
-    await expect(getOrCreateAnalysis("NVDA", { force: true })).rejects.toThrow(/verification/i);
+    await expect(getOrCreateAnalysis("NVDA", { force: true, system: true })).rejects.toThrow(/verification/i);
     expect(calls).toHaveLength(2);
     const second = calls[1].messages[0].content;
     expect(typeof second === "string" ? second : "").toContain("no_placeholders");
@@ -70,21 +70,29 @@ describe("end-to-end NVDA pipeline (fixture data + fake model)", () => {
     expect(unverified).toBe(2);
   });
 
-  it("queues alerts on a rating change and never duplicates them", async () => {
+  it("records what changed on a rating change and never duplicates it", async () => {
     const downgraded = sampleModelOutput(data);
     downgraded.rating.score = 6;
     downgraded.rating.action = "HOLD";
     setAnthropicClient(fakeAnthropic(downgraded).client);
-    const stored = await getOrCreateAnalysis("NVDA", { force: true });
-    const alerts = await db().alert.findMany({ where: { analysisId: stored.id } });
-    expect(alerts.map((a) => a.type).sort()).toEqual(["rating_change", "verdict_flip"]);
-    const first = await sendPendingAlerts();
-    expect(first).toEqual({ sent: 2, failed: 0 });
-    const again = await sendPendingAlerts();
-    expect(again).toEqual({ sent: 0, failed: 0 });
+    const stored = await getOrCreateAnalysis("NVDA", { force: true, system: true });
+    const rows = await db().change.findMany({ where: { analysisId: stored.id } });
+    expect(rows.map((r) => r.type).sort()).toEqual(["rating_change", "verdict_flip"]);
+    expect(rows.every((r) => r.runKey === null)).toBe(true); // on-demand, not a nightly run
+    // Re-recording the same events is a no-op (cron re-run safety).
+    const again = await recordChanges(stored.id, stored.analysis, [{ type: "rating_change", message: "dup" }], "2026-09-16");
+    expect(again).toBe(0);
+    expect(await db().change.count({ where: { analysisId: stored.id } })).toBe(2);
+
+    const days = await listChanges(30);
+    expect(days).toHaveLength(1);
+    expect(days[0].rows.map((r) => r.type).sort()).toEqual(["rating_change", "verdict_flip"]);
+    expect(days[0].rows[0].message).toContain("NVDA");
+    expect(await listChanges(30, "tripwire")).toEqual([]);
+    expect(await recentRuns()).toEqual([]);
   });
 
-  it("ranks a watchlist, sorts columns and builds the digest", async () => {
+  it("ranks a watchlist and sorts columns", async () => {
     const w = await createWatchlist("Main", ["NVDA", "aapl", "nvda"]);
     expect(w.symbols).toEqual(["NVDA", "AAPL"]);
     const r = await getRankings(w.slug);
@@ -94,27 +102,17 @@ describe("end-to-end NVDA pipeline (fixture data + fake model)", () => {
     expect(r?.rows[1].rating).toBeNull();
     expect(sortRows(r!.rows, "symbol", "asc")[0].symbol).toBe("AAPL");
     expect(r?.bestRiskAdjusted).toBe("NVDA");
-
-    const digest = await buildDigest(w.slug);
-    expect(digest?.movers[0]).toMatchObject({ symbol: "NVDA", from: 8, to: 6 });
-    expect(digest?.unanalyzed).toEqual(["AAPL"]);
-    expect(digest?.ranked[0].url).toMatch(/^http:\/\/test.local\/s\/nvda-/);
-
-    expect((await sendDailyDigest(w.slug)).status).toBe("sent");
-    expect((await sendDailyDigest(w.slug)).status).toBe("already_sent");
+    expect(r?.rows[0].shareToken).toMatch(/^nvda-/);
   });
 
-  it("protects the JSON API and cron with keys", () => {
-    const ok = checkApiKey(new Request("http://x/api/analysis/NVDA", { headers: { "x-api-key": "test-api-key" } }));
-    expect(ok.ok).toBe(true);
-    expect(checkApiKey(new Request("http://x/api/analysis/NVDA?api_key=test-api-key")).ok).toBe(true);
-    expect(checkApiKey(new Request("http://x/api/analysis/NVDA", { headers: { "x-api-key": "wrong" } })).ok).toBe(false);
+  it("protects the cron routes with the secret", () => {
     expect(checkCronAuth(new Request("http://x/api/cron/refresh", { headers: { authorization: "Bearer test-cron-secret" } })).ok).toBe(true);
+    expect(checkCronAuth(new Request("http://x/api/cron/refresh", { headers: { authorization: "Bearer wrong" } })).ok).toBe(false);
     expect(checkCronAuth(new Request("http://x/api/cron/refresh")).ok).toBe(false);
   });
 
   it("surfaces a model refusal instead of publishing anything", async () => {
     setAnthropicClient(fakeAnthropic(sampleModelOutput(data), { stopReason: "refusal" }).client);
-    await expect(getOrCreateAnalysis("NVDA", { force: true })).rejects.toThrow(/declined/);
+    await expect(getOrCreateAnalysis("NVDA", { force: true, system: true })).rejects.toThrow(/declined/);
   });
 });

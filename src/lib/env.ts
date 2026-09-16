@@ -47,16 +47,24 @@ const EnvSchema = z.object({
     .transform((v) => v === undefined || v === "" || v === "true" || v === "1"),
   SMART_REFRESH_PRICE_MOVE_PCT: numFromString(3),
 
-  API_KEY: z.string().optional(),
   CRON_SECRET: z.string().optional(),
 
-  ALERT_CHANNEL: z.enum(["telegram", "email", "console"]).default("console"),
-  TELEGRAM_BOT_TOKEN: z.string().optional(),
-  TELEGRAM_CHAT_ID: z.string().optional(),
-  RESEND_API_KEY: z.string().optional(),
-  ALERT_EMAIL_FROM: z.string().default("Stock Ranker <onboarding@resend.dev>"),
-  ALERT_EMAIL_TO: z.string().optional(),
-  DIGEST_WATCHLIST: z.string().default("main"),
+  // Auth (Auth.js v5)
+  AUTH_SECRET: z.string().optional(),
+  AUTH_URL: z.string().optional(),
+  GOOGLE_CLIENT_ID: z.string().optional(),
+  GOOGLE_CLIENT_SECRET: z.string().optional(),
+  AUTH_DEV_LOGIN: boolFromString, // local only: password-less email sign-in for testing
+  ADMIN_EMAILS: z.string().default(""), // comma-separated admin emails
+
+  // Abuse protection
+  TURNSTILE_SECRET_KEY: z.string().optional(),
+  NEXT_PUBLIC_TURNSTILE_SITE_KEY: z.string().optional(),
+  RATE_LIMIT_PER_MIN: intFromString(20), // per user or IP, per minute
+
+  // Public-app spend guardrails
+  FREE_DAILY_FRESH_ANALYSES: intFromString(3), // per user per day; cached views unlimited
+  DAILY_SPEND_CEILING_USD: numFromString(15), // kill switch pauses fresh analyses past this
 
   APP_URL: z.string().default("http://localhost:3000"),
   DEMO_MODE: boolFromString,

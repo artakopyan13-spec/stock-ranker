@@ -106,9 +106,6 @@ export function AnalysisStream({ ticker, initialAnalysis, shareUrl, autoStart }:
                 public link ↗
               </Link>
             )}
-            <Link href={`/api/analysis/${a.meta.ticker}`} className="chip chip-muted no-underline" prefetch={false}>
-              JSON
-            </Link>
           </>
         }
       />

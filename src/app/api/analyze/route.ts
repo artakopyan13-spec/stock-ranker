@@ -1,6 +1,10 @@
 import { z } from "zod";
-import { getOrCreateAnalysis, type AnalysisEvent } from "@/lib/analysis/service";
+import { getOrCreateAnalysis, FreshAnalysisDeniedError, type AnalysisEvent } from "@/lib/analysis/service";
 import { toApiError } from "@/lib/api-errors";
+import { currentUser } from "@/auth";
+import { clientIp } from "@/lib/request";
+import { rateLimit } from "@/lib/quota/ratelimit";
+import { isValidSymbol } from "@/lib/data";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -8,24 +12,38 @@ export const maxDuration = 300;
 const Body = z.object({ ticker: z.string().min(1).max(12), force: z.boolean().optional() });
 
 /**
- * POST /api/analyze — Server-Sent Events. Same-origin UI only (no API key): the daily cap
- * protects spend. Events: status | data | section | done | error.
+ * POST /api/analyze — Server-Sent Events. Cached analyses are free for anyone; a fresh (paid)
+ * analysis is gated by login + per-user quota + global spend kill switch inside the service.
+ * Events: status | data | section | notice | done | error.
  */
 export async function POST(req: Request): Promise<Response> {
   const parsed = Body.safeParse(await req.json().catch(() => null));
   if (!parsed.success) return Response.json({ error: "ticker is required" }, { status: 400 });
-  const { ticker, force } = parsed.data;
+  const ticker = parsed.data.ticker.toUpperCase();
+  if (!isValidSymbol(ticker)) return Response.json({ error: "Invalid ticker symbol" }, { status: 400 });
+
+  // Per-IP throttle in front of everything (protects the anonymous cached path from floods).
+  const ip = clientIp(req);
+  const ipRl = await rateLimit(`ip:${ip}`);
+  if (!ipRl.ok) return Response.json({ error: "Too many requests. Slow down a moment." }, { status: 429, headers: { "retry-after": String(ipRl.retryAfterSec) } });
+
+  const user = await currentUser();
 
   const encoder = new TextEncoder();
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
       const send = (event: AnalysisEvent) => controller.enqueue(encoder.encode(`event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`));
       try {
-        await getOrCreateAnalysis(ticker, { force, onEvent: send });
+        await getOrCreateAnalysis(ticker, { force: parsed.data.force, onEvent: send, userId: user?.id ?? null, ip });
       } catch (err) {
-        const e = toApiError(err);
-        send({ type: "error", message: e.message });
-        if (e.details) controller.enqueue(encoder.encode(`event: details\ndata: ${JSON.stringify(e.details)}\n\n`));
+        if (err instanceof FreshAnalysisDeniedError) {
+          // No cached analysis to fall back to — a soft notice, not an error (never a 500 for quota).
+          send({ type: "notice", reason: err.reason, message: err.message });
+        } else {
+          const e = toApiError(err);
+          send({ type: "error", message: e.message });
+          if (e.details) controller.enqueue(encoder.encode(`event: details\ndata: ${JSON.stringify(e.details)}\n\n`));
+        }
       } finally {
         controller.close();
       }

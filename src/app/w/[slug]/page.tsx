@@ -30,9 +30,9 @@ export default async function WatchlistPage({ params }: PageProps<"/w/[slug]">) 
             best risk-adjusted: <Link href={`/t/${rankings.bestRiskAdjusted}`} className="text-green">{rankings.bestRiskAdjusted}</Link>
           </span>
         )}
-        <span className="ml-auto text-xs text-dim">
-          JSON: <code>/api/rankings/{slug}</code> · digest: <code>/api/digest/{slug}?format=md</code>
-        </span>
+        <Link href="/changes" className="ml-auto text-xs">
+          what changed →
+        </Link>
       </div>
       <WatchlistTools slug={slug} symbols={rankings.watchlist.symbols} rows={rankings.rows} demo={e.DEMO_MODE} />
       <p className="text-xs text-dim">Nightly cron re-analyzes changed tickers (new filing, new news, price move ≥ {e.SMART_REFRESH_PRICE_MOVE_PCT}%, or analysis older than {e.ANALYSIS_TTL_HOURS}h). Ratings are the model&apos;s judgment, not fact.</p>

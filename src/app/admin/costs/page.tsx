@@ -16,14 +16,13 @@ async function loadCosts() {
     prisma.usageLog.findMany({ where: { createdAt: { gte: since } }, orderBy: { createdAt: "desc" } }),
     prisma.refreshRun.findMany({ orderBy: { startedAt: "desc" }, take: 14 }),
     analysesToday(),
-    prisma.alert.findMany({ orderBy: { createdAt: "desc" }, take: 20 }),
     prisma.watchlistItem.groupBy({ by: ["symbol"] }),
   ]);
 }
 
 export default async function CostsPage() {
   const e = env();
-  const [logs, runs, today, alerts, watched] = await loadCosts();
+  const [logs, runs, today, watched] = await loadCosts();
   const byDay = new Map<string, { usd: number; calls: number; input: number; output: number }>();
   for (const l of logs) {
     const k = dayKey(l.createdAt);
@@ -74,20 +73,6 @@ export default async function CostsPage() {
         </div>
       </section>
 
-      <section>
-        <h2 className="text-sm font-semibold uppercase tracking-wider text-muted mb-2">Recent alerts</h2>
-        <div className="card overflow-x-auto">
-          <table className="tbl w-full text-sm">
-            <thead><tr><th>When</th><th>Ticker</th><th>Type</th><th>Message</th><th>Sent</th></tr></thead>
-            <tbody>
-              {alerts.map((a) => (
-                <tr key={a.id}><td className="text-xs">{a.createdAt.toISOString().slice(0, 16).replace("T", " ")}</td><td>{a.symbol}</td><td>{a.type}</td><td className="text-xs max-w-[420px] truncate">{a.message}</td><td className="text-xs">{a.sentAt ? `${a.channel} ✓` : a.error ? <span className="text-red">{a.error.slice(0, 60)}</span> : "queued"}</td></tr>
-              ))}
-              {alerts.length === 0 && <tr><td colSpan={5} className="text-muted">No alerts yet.</td></tr>}
-            </tbody>
-          </table>
-        </div>
-      </section>
       <p className="text-xs text-dim">Caps: MAX_ANALYSES_PER_DAY={e.MAX_ANALYSES_PER_DAY}, MAX_CRON_TICKERS={e.MAX_CRON_TICKERS}. Rates are Anthropic first-party list prices; cache reads at 10%, cache writes at 125%, batches at 50%.</p>
     </div>
   );

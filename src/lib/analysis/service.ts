@@ -6,10 +6,11 @@ import { Analysis, type ModelOutput, type Usage, type Verification } from "@/lib
 import { assembleAnalysis, deriveDataSections, type DataSections } from "@/lib/analysis/assemble";
 import { failureSummary, verifyAssembled, verifyModelOutput } from "@/lib/analysis/verify";
 import { analyzeStreaming, PROMPT_VERSION, type AnalyzeResult } from "@/lib/ai/analyze";
-import { assertDailyCap, logUsage } from "@/lib/ai/client";
+import { logUsage } from "@/lib/ai/client";
+import { gateFreshAnalysis, type DenyReason } from "@/lib/quota/gate";
 import { searchNewsViaWeb } from "@/lib/ai/news-search";
 import type { TokenUsage } from "@/lib/ai/pricing";
-import { detectChanges, queueAlerts } from "@/lib/alerts/detect";
+import { detectChanges, recordChanges } from "@/lib/changes/detect";
 
 export type AnalysisSource = "ondemand" | "cron" | "seed";
 
@@ -18,6 +19,7 @@ export type AnalysisEvent =
   | { type: "data"; sections: DataSections }
   | { type: "section"; key: keyof ModelOutput; value: unknown }
   | { type: "done"; analysis: Analysis; id: string }
+  | { type: "notice"; reason: DenyReason; message: string }
   | { type: "error"; message: string };
 
 export interface StoredAnalysis {
@@ -26,6 +28,18 @@ export interface StoredAnalysis {
   createdAt: Date;
   version: number;
   verified: boolean;
+}
+
+export class FreshAnalysisDeniedError extends Error {
+  constructor(public readonly reason: DenyReason, message: string) {
+    super(message);
+    this.name = "FreshAnalysisDeniedError";
+  }
+}
+
+/** Records that a ticker was viewed/searched (drives the Top Rated leaderboard ordering). */
+async function bumpSearchCount(symbol: string): Promise<void> {
+  await db().ticker.updateMany({ where: { symbol }, data: { searchCount: { increment: 1 } } });
 }
 
 export class DemoModeError extends Error {
@@ -89,6 +103,7 @@ export async function persistAnalysis(args: {
   usage: Usage;
   previousTripwire: string | null;
   demo?: boolean;
+  runKey?: string | null;
 }): Promise<StoredAnalysis> {
   const { data, result } = args;
   const verification = verifyModelOutput(data, result.output);
@@ -134,10 +149,10 @@ export async function persistAnalysis(args: {
   if (!full.passed) throw new VerificationFailedError(full);
 
   const stored = parseStored(row);
-  // Change detection against the previous verified analysis → queued alerts (never duplicated).
+  // Change detection against the previous verified analysis → "what changed" rows (never duplicated).
   const previous = await prisma.analysis.findFirst({ where: { symbol: data.symbol, verified: true, id: { not: row.id } }, orderBy: { version: "desc" } });
   const changes = detectChanges(previous ? Analysis.parse(JSON.parse(previous.payload)) : null, analysis);
-  await queueAlerts(stored.id, analysis, changes);
+  await recordChanges(stored.id, analysis, changes, args.runKey ?? null);
   return stored;
 }
 
@@ -147,13 +162,14 @@ export async function persistAnalysis(args: {
  */
 export async function getOrCreateAnalysis(
   symbol: string,
-  opts: { force?: boolean; onEvent?: (e: AnalysisEvent) => void } = {},
+  opts: { force?: boolean; onEvent?: (e: AnalysisEvent) => void; userId?: string | null; ip?: string; source?: AnalysisSource; system?: boolean } = {},
 ): Promise<StoredAnalysis> {
   const sym = symbol.toUpperCase();
   const e = env();
   const emit = opts.onEvent ?? (() => undefined);
 
   const existing = await getLatestAnalysis(sym);
+  await bumpSearchCount(sym);
   if (e.DEMO_MODE) {
     if (existing) {
       emit({ type: "done", analysis: existing.analysis, id: existing.id });
@@ -162,11 +178,24 @@ export async function getOrCreateAnalysis(
     throw new DemoModeError(sym);
   }
   if (existing && !opts.force && isFresh(existing)) {
+    // Shared cache: any user gets this for free, no quota spent.
     emit({ type: "done", analysis: existing.analysis, id: existing.id });
     return existing;
   }
 
-  await assertDailyCap();
+  // A fresh (paid) analysis is wanted — this is the only place the bill can grow.
+  // `system` callers (seed script) bypass the per-user gate; the route path never sets it.
+  const gate = opts.system ? ({ allow: true } as const) : await gateFreshAnalysis({ userId: opts.userId ?? null, ip: opts.ip ?? "0.0.0.0" });
+  if (!gate.allow) {
+    if (existing) {
+      // Degrade gracefully: show the last cached analysis with a notice, never an error.
+      emit({ type: "notice", reason: gate.reason, message: gate.message });
+      emit({ type: "done", analysis: existing.analysis, id: existing.id });
+      return existing;
+    }
+    throw new FreshAnalysisDeniedError(gate.reason, gate.message);
+  }
+
   emit({ type: "status", message: "Fetching live market data…" });
   const data = await loadDataForAnalysis(sym, { force: opts.force });
   emit({ type: "data", sections: deriveDataSections(data) });
@@ -181,9 +210,9 @@ export async function getOrCreateAnalysis(
       retryFeedback: feedback,
       onSection: attempt === 0 ? (key, value) => emit({ type: "section", key, value }) : undefined,
     });
-    const usage: Usage = await logUsage("analysis", result.model, result.usage as TokenUsage, { symbol: sym });
+    const usage: Usage = await logUsage("analysis", result.model, result.usage as TokenUsage, { symbol: sym, userId: opts.userId ?? null });
     try {
-      const stored = await persistAnalysis({ data, result, source: "ondemand", usage, previousTripwire });
+      const stored = await persistAnalysis({ data, result, source: opts.source ?? "ondemand", usage, previousTripwire });
       emit({ type: "done", analysis: stored.analysis, id: stored.id });
       return stored;
     } catch (err) {

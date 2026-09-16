@@ -7,8 +7,8 @@ export default function setup(): void {
   const dir = resolve(process.cwd(), "tests/tmp");
   rmSync(dir, { recursive: true, force: true });
   mkdirSync(dir, { recursive: true });
-  // Brand-new empty file every run; migrate deploy applies the committed migrations (non-destructive).
-  execSync("npx prisma migrate deploy", {
+  // Brand-new empty file every run; db push creates the schema (no data can be lost).
+  execSync("npx prisma db push", {
     stdio: "pipe",
     env: { ...process.env, DATABASE_PROVIDER: "sqlite", DATABASE_URL: "file:./tests/tmp/test.db" },
   });

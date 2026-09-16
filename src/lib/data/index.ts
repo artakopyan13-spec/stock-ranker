@@ -35,6 +35,11 @@ export function setAdapter(a: DataAdapter | null): void {
   adapter = a;
 }
 
+/** Cheap allow-pattern for tickers before any provider call (letters, digits, . - ^ =). */
+export function isValidSymbol(symbol: string): boolean {
+  return /^[A-Z0-9.\-^=]{1,12}$/.test(symbol.toUpperCase());
+}
+
 export async function searchSymbols(query: string): Promise<SymbolMatch[]> {
   const q = query.trim();
   if (!q) return [];

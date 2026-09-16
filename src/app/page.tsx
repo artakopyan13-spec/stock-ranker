@@ -68,7 +68,7 @@ export default async function Home() {
         <div>
           <h2 className="text-sm font-semibold uppercase tracking-wider text-muted mb-3">Watchlists</h2>
           {watchlists.length === 0 ? (
-            <div className="card p-5 text-sm text-muted">No watchlists yet. Create one to get nightly rankings, alerts and the morning digest.</div>
+            <div className="card p-5 text-sm text-muted">No watchlists yet. Create one to get nightly rankings and a &ldquo;what changed&rdquo; log.</div>
           ) : (
             <ul className="space-y-2">
               {watchlists.map((w) => (

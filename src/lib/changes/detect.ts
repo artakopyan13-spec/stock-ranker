@@ -1,15 +1,21 @@
 import { db } from "@/lib/db";
-import { env } from "@/lib/env";
 import type { Analysis } from "@/lib/analysis/schema";
 
-export type AlertType = "rating_change" | "verdict_flip" | "tripwire" | "fcf_negative";
+export type ChangeType = "rating_change" | "verdict_flip" | "tripwire" | "fcf_negative";
+
+export const CHANGE_LABEL: Record<ChangeType, string> = {
+  rating_change: "Rating change",
+  verdict_flip: "Verdict flip",
+  tripwire: "Tripwire triggered",
+  fcf_negative: "FCF turned negative",
+};
 
 export interface Change {
-  type: AlertType;
+  type: ChangeType;
   message: string; // one-line reason
 }
 
-/** Pure diff of two analyses → the alert-worthy changes. */
+/** Pure diff of two analyses → the changes worth surfacing on the "What changed" page. */
 export function detectChanges(previous: Analysis | null, current: Analysis): Change[] {
   const changes: Change[] = [];
   const t = current.meta.ticker;
@@ -43,18 +49,16 @@ export function detectChanges(previous: Analysis | null, current: Analysis): Cha
   return changes;
 }
 
-/** Inserts alert rows keyed `${symbol}:${type}:${analysisId}`; the unique key makes re-runs no-ops. */
-export async function queueAlerts(analysisId: string, analysis: Analysis, changes: Change[]): Promise<number> {
+/** Stores change rows keyed `${symbol}:${type}:${analysisId}`; the unique key makes re-runs no-ops. */
+export async function recordChanges(analysisId: string, analysis: Analysis, changes: Change[], runKey: string | null = null): Promise<number> {
   const prisma = db();
-  let queued = 0;
+  let recorded = 0;
   for (const c of changes) {
     const key = `${analysis.meta.ticker}:${c.type}:${analysisId}`;
-    const exists = await prisma.alert.findUnique({ where: { key } });
+    const exists = await prisma.change.findUnique({ where: { key } });
     if (exists) continue;
-    await prisma.alert.create({
-      data: { key, symbol: analysis.meta.ticker, type: c.type, message: c.message, analysisId, channel: env().ALERT_CHANNEL },
-    });
-    queued++;
+    await prisma.change.create({ data: { key, symbol: analysis.meta.ticker, type: c.type, message: c.message, analysisId, runKey } });
+    recorded++;
   }
-  return queued;
+  return recorded;
 }
