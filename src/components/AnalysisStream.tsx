@@ -9,16 +9,17 @@ import { AnalyzedAgo, ErrorState, SkeletonCard } from "@/components/ui";
 import { BalanceSection, BusinessSection, CatalystsSection, FcfSection, ForecastSection, GrowthSection, HeaderSection, NewsSection, PriceSection, RatingSection, ThesisSection, TripwireSection, ValuationSection } from "@/components/sections";
 
 interface StreamState {
-  phase: "idle" | "running" | "done" | "error";
+  phase: "idle" | "running" | "done" | "error" | "notice";
   status: string;
   data: DataSections | null;
   sections: Partial<ModelOutput>;
   analysis: Analysis | null;
   error: string | null;
   details: Verification | null;
+  notice: string | null;
 }
 
-const initial = (analysis: Analysis | null): StreamState => ({ phase: analysis ? "done" : "idle", status: "", data: null, sections: {}, analysis, error: null, details: null });
+const initial = (analysis: Analysis | null): StreamState => ({ phase: analysis ? "done" : "idle", status: "", data: null, sections: {}, analysis, error: null, details: null, notice: null });
 
 /**
  * Drives POST /api/analyze (SSE). Code-derived sections render the moment data arrives;
@@ -33,7 +34,7 @@ export function AnalysisStream({ ticker, initialAnalysis, shareUrl, autoStart }:
       abortRef.current?.abort();
       const ctrl = new AbortController();
       abortRef.current = ctrl;
-      setState((s) => ({ ...s, phase: "running", status: "Starting…", data: null, sections: {}, error: null, details: null }));
+      setState((s) => ({ ...s, phase: "running", status: "Starting…", data: null, sections: {}, error: null, details: null, notice: null }));
       try {
         const res = await fetch("/api/analyze", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ticker, force }), signal: ctrl.signal });
         if (!res.ok || !res.body) {
@@ -66,6 +67,8 @@ export function AnalysisStream({ ticker, initialAnalysis, shareUrl, autoStart }:
                   return { ...s, sections: { ...s.sections, [String(payload.key)]: payload.value } };
                 case "done":
                   return { ...s, phase: "done", analysis: payload.analysis as Analysis, status: "" };
+                case "notice":
+                  return { ...s, notice: String(payload.message) };
                 case "error":
                   return { ...s, phase: "error", error: String(payload.message) };
                 case "details":
@@ -76,7 +79,7 @@ export function AnalysisStream({ ticker, initialAnalysis, shareUrl, autoStart }:
             });
           }
         }
-        setState((s) => (s.phase === "running" ? { ...s, phase: "error", error: "The stream ended before the analysis completed." } : s));
+        setState((s) => (s.phase === "running" ? (s.notice ? { ...s, phase: "notice" } : { ...s, phase: "error", error: "The stream ended before the analysis completed." }) : s));
       } catch (err) {
         if ((err as Error).name === "AbortError") return;
         setState((s) => ({ ...s, phase: "error", error: err instanceof Error ? err.message : "Unexpected error" }));
@@ -94,6 +97,8 @@ export function AnalysisStream({ ticker, initialAnalysis, shareUrl, autoStart }:
   if (state.phase === "done" && state.analysis) {
     const a = state.analysis;
     return (
+      <div className="space-y-3">
+      {state.notice && <div className="card p-3 text-sm border-l-2 border-l-gold text-muted">{state.notice} Showing the latest cached analysis.</div>}
       <AnalysisView
         analysis={a}
         headerRight={
@@ -109,6 +114,20 @@ export function AnalysisStream({ ticker, initialAnalysis, shareUrl, autoStart }:
           </>
         }
       />
+      </div>
+    );
+  }
+
+  if (state.phase === "notice") {
+    return (
+      <div className="card p-8 text-center border-l-2 border-l-gold">
+        <div className="text-lg font-semibold">Fresh analysis unavailable right now</div>
+        <p className="text-muted text-sm mt-2 max-w-md mx-auto">{state.notice}</p>
+        <div className="mt-4 flex gap-2 justify-center">
+          <a href="/signin" className="btn btn-primary no-underline">Sign in</a>
+          <button type="button" className="btn" onClick={() => run(false)}>Try again</button>
+        </div>
+      </div>
     );
   }
 
