@@ -1,129 +1,94 @@
 # Stock Ranker
 
-Self-updating AI stock research and ranking app built on the [`stock-analysis`](stock-analysis/SKILL.md) skill.
-Search a ticker → live data → the skill's framework via Claude → a verified, source-stamped analysis
-(FCF first, bull and bear, catalysts, 1–10 rating, 12-month view, tripwire). Watchlists get re-analyzed
-nightly, alerts fire on rating changes, and a morning digest lands in Telegram or email.
+A public, multi-user AI stock research & ranking web app, built on the [`stock-analysis`](stock-analysis/SKILL.md)
+skill. Anyone signs up, searches a ticker, and gets the full FCF-first analysis (rating, bull & bear, catalysts,
+12-month view, tripwire) plus financials, interactive charts, a screener, compare, a leaderboard, and a nightly
+auto-refresh. Every fresh analysis is shared across all users and quota-gated, so a public audience can't run up the bill.
 
 **This is a research notebook, not financial advice.** Ratings and forecasts are the model's judgment.
 
-## How the skill's hard rules are enforced in code
+## The cost design (why a stranger can't bankrupt you)
 
-| Skill rule | Enforcement |
+- **Global shared cache** — one analysis per ticker, seen by everyone. The 100th person to search NVDA pays nothing; they get the cached analysis with an "analyzed X ago" stamp. Cached views are unlimited and free.
+- **A fresh (paid) analysis is the only thing that costs money, and it passes one gate** ([`gate.ts`](src/lib/quota/gate.ts)): login required → ban check → per-IP + per-user rate limit → **dollar spend kill switch** → **global daily cap** → **per-user daily quota**.
+- **Bounded by design.** Spend scales with unique fresh analyses, not with users. `MAX_ANALYSES_PER_DAY` and `DAILY_SPEND_CEILING_USD` cap the total; past the ceiling, everyone gets cached results and a "high demand" notice — never an error. The [load test](tests/quota.test.ts) proves 1,000 users × 3 attempts can't exceed either cap.
+- **Runtime controls, no redeploy.** The admin toggles the kill switch and changes the ceiling, cap, and quotas from `/admin`.
+
+| Model | Per fresh analysis | 20-ticker night (batch) | 1,000 daily users |
+|---|---|---|---|
+| Sonnet 5 (default) | ~$0.056 | ~$0.56 | **bounded by the cap** (e.g. 200/day ≈ $11) |
+| Opus 5 | ~$0.14 | ~$1.40 | bounded by the cap (e.g. 200/day ≈ $28) |
+
+## Skill hard rules, enforced in code
+
+| Rule | Enforcement |
 |---|---|
-| No invented numbers | Claude never emits a KPI. Every number is copied from the data adapter by code ([`assemble.ts`](src/lib/analysis/assemble.ts)); the model fills judgment fields only ([`ModelOutput`](src/lib/analysis/schema.ts)). The verifier rejects any unit-bearing figure in prose that does not reconcile with the data. |
-| Source + date everything | Every figure is a `Sourced<number>` `{ value, source, url, asOf }`. `value: null` renders as "unverified". Price/news older than 7 days is flagged stale. |
-| FCF is the #1 KPI | The ✅/⚠️/❌ verdict is computed from the data, rendered first, and negative/deteriorating FCF is the headline risk. |
-| Label estimates | `rating.isEstimate` and `forecast12m.isEstimate` are literal `true`; the UI shows an "estimate · model judgment" badge. |
-| Not financial advice | The disclaimer is a fixed literal checked verbatim by the verifier, on every page, alert, and digest. |
-| Bear as loud as bull | Verifier requires the bear case to be at least 80% the length of the bull case. |
-| Step 6 verification | [`verify.ts`](src/lib/analysis/verify.ts) runs before anything is stored, rendered, alerted, or served by the API. One automatic retry with feedback; failures are never published. |
+| No invented numbers | Claude emits only judgment fields; code copies every number from the data adapter ([`assemble.ts`](src/lib/analysis/assemble.ts)). The verifier rejects any unit-bearing figure in prose that doesn't reconcile. |
+| Source + date everything | Each figure is `{ value, source, url, asOf }`; `null` renders "unverified"; data > 7 days flagged stale. |
+| FCF is #1 KPI | ✅/⚠️/❌ verdict computed from data, shown first; negative/deteriorating FCF is the headline risk. |
+| Label estimates; bear as loud as bull | `isEstimate` literals + UI badge; verifier requires the bear case ≥ 80% of the bull length. |
+| Not financial advice | Fixed disclaimer checked verbatim, on every page and at sign-in. |
+| Step 6 verification | [`verify.ts`](src/lib/analysis/verify.ts) runs before anything is stored, rendered, or served. |
 
-## Quick start (local, zero keys)
+## Features (v1)
+
+- **Search & analysis** — streamed section-by-section; data-derived sections render instantly, model sections as they complete.
+- **Ticker tabs** — AI analysis · Financials (10yr IS/BS/CF, annual+quarterly) · Charts (price 1M–MAX, valuation history, revenue/FCF/margins/shares/debt-vs-cash) · Overview (description, key stats, ownership, insiders).
+- **Rankings** — per-user watchlists, sortable scoreboard, analyze-all, compare in place.
+- **Top Rated leaderboard** — highest rated / most searched, from the shared cache.
+- **Screener** — filter the cache universe by rating, FCF margin, growth, P/E, P/FCF, market cap, sector; presets; saved screens.
+- **Compare** — up to 5 tickers side by side (cached-only, no cost).
+- **Calendar** — upcoming earnings + dated catalysts.
+- **Accounts** — Google or local dev sign-in, profile, per-user quota badge.
+- **Admin** — costs (top tickers/users), user list (ban, per-user quota), runtime kill switch / ceiling / cap / quota.
+- **Automation** — nightly Message-Batch refresh of every watched ticker (one run serves all users watching it), "what changed" page, public share links.
+- **Legal** — Terms, Privacy, cookie notice, disclaimer at sign-in.
+- **Demo mode** — 5 pre-analyzed tickers, no keys, zero per-visitor cost.
+
+## Quick start (local, zero keys for browsing data)
 
 ```bash
 npm install
-cp .env.example .env            # defaults: sqlite, Yahoo Finance data, console alerts
-npm run db:migrate              # creates dev.db
-npm run dev                     # http://localhost:3000
+cp .env.example .env
+# For local testing without Google: set AUTH_DEV_LOGIN=true and AUTH_SECRET in .env
+npm run db:push          # creates dev.db
+npm run dev              # http://localhost:3000
 ```
 
-Without `ANTHROPIC_API_KEY` the app fetches live data but cannot produce a new analysis. Add the key to `.env`
-and search any ticker. The first analysis of a ticker costs roughly $0.14 on Opus 5 (about $0.06 on Sonnet 5).
-
-## Configuration
-
-Everything is in [`.env.example`](.env.example). The important knobs:
-
-| Variable | Default | Purpose |
-|---|---|---|
-| `ANALYSIS_MODEL` | `claude-opus-5` | Model for the analysis. `claude-sonnet-5` cuts cost ~60%. |
-| `ANALYSIS_EFFORT` | `medium` | Thinking depth. `high` for max quality, `low` for cheapest. |
-| `DATA_PROVIDER` | `yahoo` | `yahoo` (no key), `fmp`, `finnhub`. Swappable adapters, one normalized schema. |
-| `NEWS_WEB_SEARCH_FALLBACK` | `true` | Anthropic web search when the provider has no 7-day news (~$0.03/use). |
-| `MAX_ANALYSES_PER_DAY` | `40` | Hard cap on on-demand model calls. |
-| `MAX_CRON_TICKERS` | `20` | Hard cap on tickers per nightly refresh. |
-| `SMART_REFRESH` | `true` | Only re-analyze when something changed (new filing, new news, price move ≥ `SMART_REFRESH_PRICE_MOVE_PCT`, or analysis older than `ANALYSIS_TTL_HOURS`). |
-| `API_KEY` | — | Protects the JSON API. |
-| `CRON_SECRET` | — | Vercel Cron authorization. |
-| `ALERT_CHANNEL` | `console` | `telegram`, `email` (Resend), or `console`. |
-| `DEMO_MODE` | `false` | Serve only the seeded demo tickers; zero model or data calls per visitor. |
+Financials, charts, screener, compare, and calendar work from Yahoo data with no keys. To run a **fresh AI analysis**
+you need `ANTHROPIC_API_KEY`, and you must be signed in (quota is per account).
 
 ## What's where
 
 ```
-prompts/v1/                 versioned prompts (system, user template, news search)
-stock-analysis/             the skill this app reproduces
-src/lib/data/               adapters (yahoo, fmp, finnhub, fixture) → StockData
-src/lib/analysis/           schema, assemble (data → sections), verify (Step 6), service (orchestration)
-src/lib/ai/                 Anthropic client, pricing, streaming analysis, batch params, news search
-src/lib/cron/               smart refresh, nightly batch submit, morning collect
-src/lib/alerts/  digest/    change detection, channels, digest template (json/md/text/html)
-src/app/api/                analyze (SSE), analysis/:ticker, rankings/:watchlist, digest/:watchlist,
-                            cron/refresh, cron/collect, search, watchlists
-src/app/                    pages: / (search), /t/:ticker, /w/:slug (rankings + compare), /s/:token (public), /admin/costs
-tests/                      vitest: adapters, schema, verify, assemble, alerts, streaming, digest, e2e pipeline
+prompts/v1/            versioned prompts
+stock-analysis/        the skill this app reproduces
+src/lib/data/          adapters (yahoo/fmp/finnhub/fixture) → StockData; company.ts → financials/charts/overview
+src/lib/analysis/      schema, assemble, verify, service (orchestration + gate)
+src/lib/quota/         gate, spend, settings (runtime), ratelimit — the cost-control spine
+src/lib/ai/            Anthropic client, pricing, streaming, batch, news search
+src/lib/cron/          smart refresh, nightly batch, morning collect
+src/lib/{universe,screener,rankings,changes,watchlists}.ts
+src/auth.ts            Auth.js v5 (Google + dev), admin role
+src/app/               pages + API routes; src/components/ UI
+tests/                 vitest incl. quota + 1,000-user load test
 ```
-
-## Pages
-
-- `/` — search (ticker or company name), recent analyses, watchlists.
-- `/t/NVDA` — streams the analysis: data-derived sections render instantly, model sections appear as they complete, then the verified document replaces them. "analyzed X ago · refresh".
-- `/w/main` — ranked, sortable table (rating, FCF margin, growth, forward P/E); select 2–4 rows to compare side by side; "Analyze missing / stale".
-- `/s/<token>` — public, read-only, edge-cached share page for a ticker's latest analysis.
-- `/admin/costs` — daily spend, per-call token usage, cron runs, alerts.
-
-## JSON API (send `x-api-key: $API_KEY`)
-
-```bash
-curl -H "x-api-key: $API_KEY" https://your-app.vercel.app/api/analysis/NVDA
-curl -H "x-api-key: $API_KEY" "https://your-app.vercel.app/api/analysis/NVDA?refresh=1"   # force new analysis
-curl -H "x-api-key: $API_KEY" "https://your-app.vercel.app/api/rankings/main?sort=fcfMarginPct&dir=desc"
-curl -H "x-api-key: $API_KEY" "https://your-app.vercel.app/api/digest/main?format=md"     # json | md | text | html
-```
-
-The analysis document follows the [`Analysis`](src/lib/analysis/schema.ts) Zod schema. The digest JSON is the
-reusable template for your briefing tool: `ranked[]`, `movers[]`, `newRisks[]`, `catalystsThisWeek[]`, `disclaimer`.
-
-## Automation
-
-- **Nightly refresh** (`/api/cron/refresh`, default 02:00 UTC): fetches fresh data for every watched ticker, applies the smart-refresh rule, and submits one Anthropic **Message Batch** (50% price). Idempotent per calendar day. `?mode=sync` analyzes inline instead (for Pro plans with long function timeouts).
-- **Morning collect** (`/api/cron/collect`, default 11:00 UTC): stores + verifies batch results, diffs each against the previous analysis, sends queued alerts, then sends the digest. Every step is idempotent — runs flip status, alerts have a unique key and `sentAt`, digests a unique day key. Safe to re-run.
-- **Alerts**: rating change, BUY/HOLD/SELL flip, tripwire triggered (the model judges the previous tripwire against new data), FCF turned negative. One line + link, with the disclaimer.
-
-## Demo mode
-
-```bash
-npm run seed:demo          # once, with ANTHROPIC_API_KEY: analyzes NVDA AAPL TSLA MSFT AMD (~$0.70 on Opus 5)
-git add data/demo && git commit -m "Seed demo analyses"
-```
-
-Deploy with `DEMO_MODE=true` and no keys: visitors get the five cached analyses, search is limited to them,
-and nothing costs money per visit.
 
 ## Tests
 
 ```bash
-npm test                   # 56 tests: adapters on real captured Yahoo data, schema, verifier, assembly,
-                           # change detection, smart refresh, section streaming, digest, e2e NVDA pipeline
+npm test    # 70 tests incl. the load test proving the spend ceiling holds under 1,000 users
 ```
 
-## Costs (Anthropic list prices, ~3.5k cached system + ~5k data + ~4.5k output tokens)
+See [DEPLOY.md](DEPLOY.md) for Vercel + Postgres + Google OAuth, [ARCHITECTURE.md](ARCHITECTURE.md) for the data flow,
+[PROGRESS.md](PROGRESS.md) for status and what's blocked on your secrets.
 
-| Model | Per analysis | 20-ticker night (batch) | Month |
-|---|---|---|---|
-| Opus 5 | $0.14 | $1.40 | ~$42 |
-| Sonnet 5 | $0.056 | $0.56 | ~$17 |
+## Decisions (cheapest-viable, made for you)
 
-Smart refresh typically re-analyzes 30–40% of a list per night, which cuts these further. Live numbers are on `/admin/costs`.
-
-## Design decisions and deviations
-
-- **Yahoo Finance as the default provider.** It needs no key, has quarterly statements, TTM cash flow, and news, so the app works out of the box and demo seeding uses real data. It is an unofficial API; FMP and Finnhub adapters are included for production use.
-- **Message Batches for the nightly run** instead of a long-running function: halves model cost and sidesteps Vercel's function timeout. The cost is a second cron to collect.
-- **Prisma 7 with driver adapters** (better-sqlite3 locally, pg in prod). The schema template swaps the provider line at build time because Prisma does not allow env() there.
-- **Prompts are bundled at build time** from `prompts/` into a generated TS module so serverless functions never read the filesystem.
-- **No server-side refusal fallback** is configured; a refusal surfaces as a clear error rather than silently switching models. Enable it in `src/lib/ai/analyze.ts` if you prefer.
-- **Out of v1**: the skill's multi-agent deep dive (equity research / risk / macro / devil's advocate / execution lenses). Planned for v2 as a second, opt-in analysis type on top of the same schema.
-
-See [DEPLOY.md](DEPLOY.md) for Vercel + Postgres, [ARCHITECTURE.md](ARCHITECTURE.md) for the data flow.
+- **Yahoo Finance keyless** for everything (analysis input, financials, charts, ownership). $0 data cost. FMP/Finnhub adapters remain swappable.
+- **Sonnet 5** at low effort with hard prompt caching (env-switchable to Opus 5).
+- **Auth.js v5 + Google** (free); local dev sign-in for testing; Turnstile CAPTCHA optional.
+- **DB-backed quotas + rate limiter** (no paid Redis). Kill switch + quotas admin-editable at runtime.
+- **Message Batches** for the nightly run (50% cost). **Postgres (Neon)** in prod, SQLite locally.
+- **Screener runs over the shared-cache universe** — it grows as tickers get analyzed (free); a whole-market screen would need a paid data tier, noted in-app rather than faked.
+- Out of v1: transcripts, copilot, Stripe, multi-agent deep dive — the quota/Setting layer is built so a paid tier is a small addition.
