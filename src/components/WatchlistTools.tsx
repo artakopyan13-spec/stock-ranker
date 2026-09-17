@@ -47,6 +47,7 @@ export function WatchlistTools({ slug, symbols, rows, demo, canEdit = true }: { 
   const [text, setText] = useState(symbols.join(", "));
   const [saving, setSaving] = useState(false);
   const [progress, setProgress] = useState<string | null>(null);
+  const [analyzing, setAnalyzing] = useState<string | null>(null);
   const [selected, setSelected] = useState<string[]>([]);
   const [compare, setCompare] = useState<Analysis[]>([]);
   const [loadingCompare, setLoadingCompare] = useState(false);
@@ -77,6 +78,22 @@ export function WatchlistTools({ slug, symbols, rows, demo, canEdit = true }: { 
       }
     }
     setProgress("Done.");
+    router.refresh();
+  };
+
+  const analyzeOne = async (symbol: string) => {
+    setAnalyzing(symbol);
+    try {
+      const res = await fetch("/api/analyze", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ticker: symbol }) });
+      const text = await res.text();
+      if (text.includes("event: error") || text.includes("event: notice")) {
+        const m = text.match(/event: (?:error|notice)\ndata: (.*)\n/);
+        if (m) setProgress(`${symbol}: ${(JSON.parse(m[1]) as { message: string }).message}`);
+      }
+    } catch (err) {
+      setProgress(`${symbol}: ${err instanceof Error ? err.message : "failed"}`);
+    }
+    setAnalyzing(null);
     router.refresh();
   };
 
@@ -111,7 +128,7 @@ export function WatchlistTools({ slug, symbols, rows, demo, canEdit = true }: { 
         {readOnly && <div className="text-xs text-dim">{demo ? "Demo mode: watchlists are read-only." : "You can view and compare this watchlist. Sign in as its owner to edit or analyze."}</div>}
       </div>
 
-      <Scoreboard rows={rows} selectable selected={selected} onToggle={(s) => setSelected((cur) => (cur.includes(s) ? cur.filter((x) => x !== s) : cur.length < 4 ? [...cur, s] : cur))} />
+      <Scoreboard rows={rows} selectable selected={selected} onToggle={(s) => setSelected((cur) => (cur.includes(s) ? cur.filter((x) => x !== s) : cur.length < 4 ? [...cur, s] : cur))} onAnalyze={readOnly ? undefined : analyzeOne} analyzing={analyzing} />
 
       <div className="flex items-center gap-3">
         <button type="button" className="btn" onClick={loadCompare} disabled={selected.length < 2 || loadingCompare}>

@@ -6,6 +6,7 @@ import { getLatestAnalysis, isFresh } from "@/lib/analysis/service";
 import { currentUser } from "@/auth";
 import { AnalysisStream } from "@/components/AnalysisStream";
 import { CompanyTabs } from "@/components/company";
+import { AddToWatchlist } from "@/components/AddToWatchlist";
 import { shareUrlFor } from "@/lib/share";
 
 export const dynamic = "force-dynamic";
@@ -33,5 +34,13 @@ export default async function TickerPage({ params, searchParams }: PageProps<"/t
       <AnalysisStream ticker={symbol} initialAnalysis={stored && (fresh || e.DEMO_MODE) ? stored.analysis : null} shareUrl={shareUrl} autoStart={autoStart} signedIn={!!user} />
     </div>
   );
-  return <CompanyTabs symbol={symbol} analysis={analysis} />;
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <div className="text-lg font-semibold">{symbol}</div>
+        {!e.DEMO_MODE && <AddToWatchlist symbol={symbol} />}
+      </div>
+      <CompanyTabs symbol={symbol} analysis={analysis} />
+    </div>
+  );
 }

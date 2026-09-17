@@ -1,4 +1,4 @@
-import { num } from "@/lib/data/types";
+import { num, type NewsItem, recentNews } from "@/lib/data/types";
 
 type Rec = Record<string, unknown>;
 const asRec = (v: unknown): Rec => (typeof v === "object" && v !== null ? (v as Rec) : {});
@@ -78,6 +78,7 @@ export interface CompanyData {
   quarterly: FinancialRow[];
   overview: CompanyOverview;
   valuationHistory: ValuationPoint[];
+  news: NewsItem[];
   source: string;
   fetchedAt: string;
 }
@@ -88,6 +89,7 @@ export interface CompanyRaw {
   quarterly: Rec[];
   chart5y: { quotes: Rec[] };
   summary: Rec;
+  news?: Rec[];
 }
 
 function financialRow(r: Rec): FinancialRow {
@@ -166,6 +168,20 @@ export function normalizeCompany(symbol: string, raw: CompanyRaw): CompanyData {
     .map((o) => ({ organization: String(o.organization ?? ""), pctHeld: num(asRec(o.pctHeld).raw ?? o.pctHeld), value: num(asRec(o.value).raw ?? o.value) }))
     .slice(0, 15);
 
+  const now = new Date(raw.capturedAt);
+  const news: NewsItem[] = recentNews(
+    (raw.news ?? [])
+      .map((n, i): NewsItem | null => {
+        const date = iso(n.providerPublishTime);
+        const headline = typeof n.title === "string" ? n.title : null;
+        if (!date || !headline) return null;
+        return { id: typeof n.uuid === "string" ? n.uuid : `co-${i}`, date, headline, source: typeof n.publisher === "string" ? n.publisher : "Yahoo Finance", url: typeof n.link === "string" ? n.link : null, summary: null };
+      })
+      .filter((n): n is NewsItem => n !== null),
+    now,
+    30,
+    12,
+  );
   const asOf = raw.capturedAt.slice(0, 10);
   return {
     symbol,
@@ -173,6 +189,7 @@ export function normalizeCompany(symbol: string, raw: CompanyRaw): CompanyData {
     annual,
     quarterly,
     valuationHistory,
+    news,
     overview: {
       description: typeof profile.longBusinessSummary === "string" ? profile.longBusinessSummary : null,
       sector: typeof profile.sector === "string" ? profile.sector : null,

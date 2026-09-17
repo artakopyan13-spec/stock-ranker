@@ -48,14 +48,15 @@ async function fetchCompanyRaw(symbol: string): Promise<CompanyRaw> {
   const p1 = since.toISOString().slice(0, 10);
   const qSince = new Date();
   qSince.setFullYear(qSince.getFullYear() - 3);
-  const [annual, quarterly, chart, summary] = await Promise.all([
+  const [annual, quarterly, chart, summary, news] = await Promise.all([
     y.fundamentalsTimeSeries(symbol, { period1: p1, type: "annual", module: "all" }, noValidate).then((r) => r as Rec[]).catch(() => []),
     y.fundamentalsTimeSeries(symbol, { period1: qSince.toISOString().slice(0, 10), type: "quarterly", module: "all" }, noValidate).then((r) => r as Rec[]).catch(() => []),
     y.chart(symbol, { period1: "2019-01-01", interval: "1mo" }, noValidate).then((r) => ({ quotes: ((r as { quotes?: Rec[] }).quotes ?? []) as Rec[] })).catch(() => ({ quotes: [] })),
     y.quoteSummary(symbol, { modules: ["summaryProfile", "defaultKeyStatistics", "insiderTransactions", "institutionOwnership", "majorHoldersBreakdown", "price", "financialData"] }, noValidate).then((r) => r as Rec).catch(() => ({}) as Rec),
+    y.search(symbol, { newsCount: 12, quotesCount: 0 }).then((r) => ((r as Rec).news ?? []) as Rec[]).catch(() => []),
   ]);
   if (!annual.length && !quarterly.length && !Object.keys(summary).length) throw new SymbolNotFoundError(symbol);
-  return { capturedAt: new Date().toISOString(), annual, quarterly, chart5y: chart, summary };
+  return { capturedAt: new Date().toISOString(), annual, quarterly, chart5y: chart, summary, news };
 }
 
 function loadCompanyFixture(symbol: string): CompanyRaw {

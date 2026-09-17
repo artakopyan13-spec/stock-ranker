@@ -14,7 +14,7 @@ const COLS: Array<{ key: SortKey; label: string }> = [
   { key: "forwardPE", label: "Fwd P/E" },
 ];
 
-export function Scoreboard({ rows, selectable = false, selected = [], onToggle }: { rows: RankingRow[]; selectable?: boolean; selected?: string[]; onToggle?: (symbol: string) => void }) {
+export function Scoreboard({ rows, selectable = false, selected = [], onToggle, onAnalyze, analyzing }: { rows: RankingRow[]; selectable?: boolean; selected?: string[]; onToggle?: (symbol: string) => void; onAnalyze?: (symbol: string) => void; analyzing?: string | null }) {
   const [sort, setSort] = useState<SortKey>("rating");
   const [dir, setDir] = useState<"asc" | "desc">("desc");
   const sorted = useMemo(() => sortRows(rows, sort, dir), [rows, sort, dir]);
@@ -67,7 +67,13 @@ export function Scoreboard({ rows, selectable = false, selected = [], onToggle }
               </td>
               <td>
                 {r.rating === null ? (
-                  <span className="text-dim italic">not analyzed</span>
+                  onAnalyze ? (
+                    <button type="button" className="btn btn-ghost py-0.5 px-2 text-xs" disabled={analyzing === r.symbol} onClick={(e) => { e.preventDefault(); onAnalyze(r.symbol); }}>
+                      {analyzing === r.symbol ? "analyzing…" : "▶ analyze"}
+                    </button>
+                  ) : (
+                    <span className="text-dim italic">not analyzed</span>
+                  )
                 ) : (
                   <span className="text-gold font-semibold">
                     {r.rating}/10

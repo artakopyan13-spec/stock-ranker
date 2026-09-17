@@ -226,6 +226,7 @@ export function ValuationHistory({ data }: { data: CompanyData }) {
 // ---------- Company overview ----------
 export function Overview({ data }: { data: CompanyData }) {
   const o = data.overview;
+  const news = data.news ?? [];
   return (
     <div className="space-y-4">
       <Card title="Company">
@@ -238,6 +239,18 @@ export function Overview({ data }: { data: CompanyData }) {
           {o.website && <a href={o.website} target="_blank" rel="noreferrer" className="chip chip-muted no-underline">website ↗</a>}
         </div>
       </Card>
+      {news.length > 0 && (
+        <Card title="Recent news">
+          <ul className="space-y-2">
+            {news.map((n) => (
+              <li key={n.id} className="text-sm">
+                {n.url ? <a href={n.url} target="_blank" rel="noreferrer" className="text-text no-underline hover:underline">{n.headline}</a> : n.headline}
+                <span className="text-xs text-muted ml-2">{n.source} · {dateLabel(n.date)}</span>
+              </li>
+            ))}
+          </ul>
+        </Card>
+      )}
       <div className="grid md:grid-cols-2 gap-4">
         <Card title="Key stats">
           <dl className="grid grid-cols-2 gap-2 text-sm">
