@@ -64,7 +64,7 @@ interface LineSeries {
 }
 
 /** Draw-in multi-series line chart (used for margins — the honest gauge for cyclicals). */
-export function LineChart({ labels, series, title, height = 150, unit = "%" }: { labels: string[]; series: LineSeries[]; title?: string; height?: number; unit?: string }) {
+export function LineChart({ labels, series, title, height = 150, unit = "%", area = false }: { labels: string[]; series: LineSeries[]; title?: string; height?: number; unit?: string; area?: boolean }) {
   const all = series.flatMap((s) => s.values).filter((v): v is number => v !== null);
   if (!all.length) return <div className="text-xs text-dim">No margin history available.</div>;
   const max = Math.max(...all, 0);
@@ -91,8 +91,18 @@ export function LineChart({ labels, series, title, height = 150, unit = "%" }: {
           </g>
         ))}
         {series.map((s) => {
-          const pts = s.values.map((v, i) => (v === null ? null : `${x(i).toFixed(1)},${y(v).toFixed(1)}`)).filter((p): p is string => p !== null);
-          return <polyline key={s.name} className="line-draw" points={pts.join(" ")} fill="none" stroke={s.color} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />;
+          const idx = s.values.map((v, i) => ({ v, i })).filter((p): p is { v: number; i: number } => p.v !== null);
+          if (idx.length === 0) return null;
+          const pts = idx.map((p) => `${x(p.i).toFixed(1)},${y(p.v).toFixed(1)}`);
+          const areaPath = area ? `M ${x(idx[0].i).toFixed(1)},${(height - pad.b).toFixed(1)} L ${pts.join(" L ")} L ${x(idx[idx.length - 1].i).toFixed(1)},${(height - pad.b).toFixed(1)} Z` : null;
+          const last = idx[idx.length - 1];
+          return (
+            <g key={s.name}>
+              {areaPath && <path d={areaPath} fill={s.color} opacity={0.08} />}
+              <polyline className="line-draw" points={pts.join(" ")} fill="none" stroke={s.color} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
+              <circle cx={x(last.i)} cy={y(last.v)} r="2.5" fill={s.color} />
+            </g>
+          );
         })}
         {labels.map((l, i) => (
           <text key={l} x={x(i)} y={height - 6} textAnchor="middle" fontSize="8" fill="var(--muted)">

@@ -32,6 +32,7 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
               <Link href="/" className="text-muted hover:text-text no-underline">Search</Link>
               <Link href="/leaderboard" className="text-muted hover:text-text no-underline">Top Rated</Link>
               <Link href="/screener" className="text-muted hover:text-text no-underline">Screener</Link>
+              <Link href="/screener?view=map" className="text-muted hover:text-text no-underline">Map</Link>
               <Link href="/compare" className="text-muted hover:text-text no-underline">Compare</Link>
               <Link href="/calendar" className="text-muted hover:text-text no-underline">Calendar</Link>
               <Link href="/w" className="text-muted hover:text-text no-underline">Watchlists</Link>
@@ -45,6 +46,7 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
                 <>
                   {!demo && <QuotaBadge />}
                   <Link href="/profile" className="text-muted hover:text-text no-underline">{user.name ?? user.email}</Link>
+                  <Link href="/settings" className="text-muted hover:text-text no-underline" title="Settings">⚙</Link>
                   <form action={doSignOut}>
                     <button type="submit" className="btn btn-ghost py-1 px-2 text-xs">Sign out</button>
                   </form>

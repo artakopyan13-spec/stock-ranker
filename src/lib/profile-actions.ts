@@ -25,3 +25,21 @@ export async function setWatchlistPublic(formData: FormData): Promise<void> {
   await db().watchlist.updateMany({ where: { slug, userId: user.id }, data: { isPublic } });
   revalidatePath("/profile");
 }
+
+export async function setDisplayName(formData: FormData): Promise<void> {
+  const user = await currentUser();
+  if (!user) redirect("/signin");
+  const name = String(formData.get("name") ?? "").trim().slice(0, 60);
+  await db().user.update({ where: { id: user.id }, data: { name: name || null } });
+  revalidatePath("/settings");
+  redirect("/settings?ok=1");
+}
+
+export async function deleteMyData(): Promise<void> {
+  const user = await currentUser();
+  if (!user) redirect("/signin");
+  await db().watchlist.deleteMany({ where: { userId: user.id } });
+  await db().savedScreen.deleteMany({ where: { userId: user.id } });
+  revalidatePath("/settings");
+  redirect("/settings?deleted=1");
+}

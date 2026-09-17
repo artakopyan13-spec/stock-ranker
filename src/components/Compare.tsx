@@ -23,6 +23,14 @@ function marginOf(n: number | null | undefined, d: number | null | undefined): n
   return n !== null && n !== undefined && d ? (n / d) * 100 : null;
 }
 
+interface Row {
+  label: string;
+  info?: string;
+  fmt: (c: Col) => React.ReactNode;
+  num?: (c: Col) => number | null; // numeric value for best/worst highlighting
+  better?: "high" | "low"; // which end is "better"
+}
+
 export function Compare({ initial }: { initial: string[] }) {
   const [tickers, setTickers] = useState<string[]>(initial.slice(0, 5));
   const [input, setInput] = useState("");
@@ -57,27 +65,52 @@ export function Compare({ initial }: { initial: string[] }) {
   const shown = tickers.map((t) => cols[t]).filter((c): c is Col => Boolean(c));
   const anyLoading = shown.some((c) => c.loading);
 
-  const rows: Array<{ label: string; info?: string; get: (c: Col) => React.ReactNode; tone?: (c: Col) => string }> = [
-    { label: "AI rating", info: "rating", get: (c) => (c.analysis ? `${c.analysis.rating.score}/10 ${c.analysis.rating.action}` : <Link href={`/t/${c.symbol}`} className="text-purple text-xs">analyze →</Link>), tone: (c) => (c.analysis ? "text-gold" : "") },
-    { label: "Price", get: (c) => fmtPrice(c.analysis?.price.current.value ?? null, c.analysis?.meta.currency ?? "USD") },
-    { label: "Market cap", info: "market-cap", get: (c) => money(c.analysis?.price.marketCap.value ?? c.company?.overview.keyStats.marketCap ?? null, c.company?.currency ?? "USD") },
-    { label: "Revenue (latest FY)", get: (c) => money(latestAnnual(c.company)?.revenue ?? null, c.company?.currency ?? "USD") },
-    { label: "Net income (latest FY)", get: (c) => money(latestAnnual(c.company)?.netIncome ?? null, c.company?.currency ?? "USD") },
-    { label: "Free cash flow", info: "fcf", get: (c) => money(latestAnnual(c.company)?.fcf ?? c.analysis?.fcf.ttm.value ?? null, c.company?.currency ?? "USD") },
-    { label: "FCF verdict", info: "fcf", get: (c) => (c.analysis ? `${FCF_EMOJI[c.analysis.fcf.verdict]} ${c.analysis.fcf.verdict}` : "—") },
-    { label: "Rev growth (YoY)", info: "revenue-growth", get: (c) => pct(c.analysis?.growth.revenueGrowthYoYLatestQ.value ?? null, 1, true) },
-    { label: "Gross margin", info: "gross-margin", get: (c) => pct(c.analysis?.growth.grossMarginPct.value ?? marginOf(latestAnnual(c.company)?.grossProfit, latestAnnual(c.company)?.revenue)) },
-    { label: "Operating margin", info: "operating-margin", get: (c) => pct(c.analysis?.growth.operatingMarginPct.value ?? marginOf(latestAnnual(c.company)?.operatingIncome, latestAnnual(c.company)?.revenue)) },
-    { label: "Trailing P/E", info: "pe", get: (c) => multiple(c.analysis?.valuation.trailingPE.value ?? null) },
-    { label: "Forward P/E", info: "forward-pe", get: (c) => multiple(c.analysis?.valuation.forwardPE.value ?? null) },
-    { label: "P/FCF", info: "pfcf", get: (c) => multiple(c.analysis?.valuation.priceToFcf.value ?? null) },
-    { label: "Dividend yield", info: "dividend-yield", get: (c) => pct(c.company?.overview.keyStats.dividendYieldPct ?? null) },
+  const fcfMargin = (c: Col): number | null => {
+    const fcf = latestAnnual(c.company)?.fcf ?? c.analysis?.fcf.ttm.value ?? null;
+    const rev = latestAnnual(c.company)?.revenue ?? c.analysis?.growth.revenueTTM.value ?? null;
+    return marginOf(fcf, rev);
+  };
+
+  const rows: Row[] = [
+    { label: "AI rating", info: "rating", fmt: (c) => (c.analysis ? `${c.analysis.rating.score}/10 ${c.analysis.rating.action}` : <Link href={`/t/${c.symbol}`} className="text-purple text-xs">analyze →</Link>), num: (c) => c.analysis?.rating.score ?? null, better: "high" },
+    { label: "Price", fmt: (c) => fmtPrice(c.analysis?.price.current.value ?? null, c.analysis?.meta.currency ?? "USD") },
+    { label: "Market cap", info: "market-cap", fmt: (c) => money(c.analysis?.price.marketCap.value ?? c.company?.overview.keyStats.marketCap ?? null, c.company?.currency ?? "USD") },
+    { label: "Revenue (latest FY)", fmt: (c) => money(latestAnnual(c.company)?.revenue ?? null, c.company?.currency ?? "USD") },
+    { label: "Free cash flow", info: "fcf", fmt: (c) => money(latestAnnual(c.company)?.fcf ?? c.analysis?.fcf.ttm.value ?? null, c.company?.currency ?? "USD"), num: (c) => latestAnnual(c.company)?.fcf ?? c.analysis?.fcf.ttm.value ?? null, better: "high" },
+    { label: "FCF margin", info: "fcf-margin", fmt: (c) => pct(fcfMargin(c)), num: fcfMargin, better: "high" },
+    { label: "FCF verdict", info: "fcf", fmt: (c) => (c.analysis ? `${FCF_EMOJI[c.analysis.fcf.verdict]} ${c.analysis.fcf.verdict}` : "—") },
+    { label: "Rev growth (YoY)", info: "revenue-growth", fmt: (c) => pct(c.analysis?.growth.revenueGrowthYoYLatestQ.value ?? null, 1, true), num: (c) => c.analysis?.growth.revenueGrowthYoYLatestQ.value ?? null, better: "high" },
+    { label: "Gross margin", info: "gross-margin", fmt: (c) => pct(c.analysis?.growth.grossMarginPct.value ?? marginOf(latestAnnual(c.company)?.grossProfit, latestAnnual(c.company)?.revenue)), num: (c) => c.analysis?.growth.grossMarginPct.value ?? marginOf(latestAnnual(c.company)?.grossProfit, latestAnnual(c.company)?.revenue), better: "high" },
+    { label: "Operating margin", info: "operating-margin", fmt: (c) => pct(c.analysis?.growth.operatingMarginPct.value ?? marginOf(latestAnnual(c.company)?.operatingIncome, latestAnnual(c.company)?.revenue)), num: (c) => c.analysis?.growth.operatingMarginPct.value ?? marginOf(latestAnnual(c.company)?.operatingIncome, latestAnnual(c.company)?.revenue), better: "high" },
+    { label: "Trailing P/E", info: "pe", fmt: (c) => multiple(c.analysis?.valuation.trailingPE.value ?? null), num: (c) => c.analysis?.valuation.trailingPE.value ?? null, better: "low" },
+    { label: "Forward P/E", info: "forward-pe", fmt: (c) => multiple(c.analysis?.valuation.forwardPE.value ?? null), num: (c) => c.analysis?.valuation.forwardPE.value ?? null, better: "low" },
+    { label: "P/FCF", info: "pfcf", fmt: (c) => multiple(c.analysis?.valuation.priceToFcf.value ?? null), num: (c) => c.analysis?.valuation.priceToFcf.value ?? null, better: "low" },
+    { label: "Dividend yield", info: "dividend-yield", fmt: (c) => pct(c.company?.overview.keyStats.dividendYieldPct ?? null), num: (c) => c.company?.overview.keyStats.dividendYieldPct ?? null, better: "high" },
   ];
 
+  // best/worst per row for green/red highlighting
+  const marks = (r: Row): Map<string, "best" | "worst"> => {
+    const m = new Map<string, "best" | "worst">();
+    if (!r.num || !r.better) return m;
+    const vals = shown.map((c) => ({ s: c.symbol, v: r.num!(c) })).filter((x): x is { s: string; v: number } => x.v !== null && Number.isFinite(x.v));
+    if (vals.length < 2) return m;
+    const sorted = [...vals].sort((a, b) => (r.better === "high" ? b.v - a.v : a.v - b.v));
+    if (sorted[0].v !== sorted[sorted.length - 1].v) {
+      m.set(sorted[0].s, "best");
+      m.set(sorted[sorted.length - 1].s, "worst");
+    }
+    return m;
+  };
+
   const withData = shown.filter((c) => c.company && c.company.annual.length >= 2);
-  const maxLen = Math.max(0, ...withData.map((c) => c.company!.annual.length));
-  const labels = Array.from({ length: maxLen }, (_, i) => `Y${i + 1}`);
-  const series = withData.map((c, i) => ({ name: c.symbol, color: COLORS[i % COLORS.length], values: c.company!.annual.map((r) => (r.revenue === null ? null : r.revenue / 1e9)) }));
+  const refCo = withData.slice().sort((a, b) => b.company!.annual.length - a.company!.annual.length)[0];
+  const maxLen = refCo ? refCo.company!.annual.length : 0;
+  const labels = refCo ? refCo.company!.annual.map((r) => r.period.slice(0, 4)) : [];
+  const series = withData.map((c, i) => {
+    const arr = c.company!.annual.map((r) => (r.revenue === null ? null : r.revenue / 1e9));
+    const padded = Array(Math.max(0, maxLen - arr.length)).fill(null).concat(arr);
+    return { name: c.symbol, color: COLORS[i % COLORS.length], values: padded };
+  });
 
   return (
     <div className="space-y-4">
@@ -94,7 +127,7 @@ export function Compare({ initial }: { initial: string[] }) {
         {anyLoading && <span className="text-xs text-muted">loading…</span>}
       </div>
 
-      {tickers.length === 0 && <div className="card p-8 text-center text-muted">Add up to 5 tickers to compare. Financials come from the data provider; the AI rating shows when a ticker has been analyzed.</div>}
+      {tickers.length === 0 && <div className="card p-8 text-center text-muted">Add up to 5 tickers to compare. Green marks the best value in each row, red the weakest.</div>}
 
       {shown.length > 0 && (
         <div className="card overflow-x-auto">
@@ -111,22 +144,29 @@ export function Compare({ initial }: { initial: string[] }) {
               </tr>
             </thead>
             <tbody>
-              {rows.map((r) => (
-                <tr key={r.label}>
-                  <td className="text-muted text-xs whitespace-nowrap">{r.label} {r.info && <InfoDot id={r.info} />}</td>
-                  {shown.map((c) => (
-                    <td key={c.symbol} className={`text-right ${r.tone?.(c) ?? ""}`}>{c.company === null && c.analysis === null && !c.loading ? <span className="text-dim">not found</span> : r.get(c)}</td>
-                  ))}
-                </tr>
-              ))}
+              {rows.map((r) => {
+                const mk = marks(r);
+                return (
+                  <tr key={r.label}>
+                    <td className="text-muted text-xs whitespace-nowrap">{r.label} {r.info && <InfoDot id={r.info} />}</td>
+                    {shown.map((c) => {
+                      const mark = mk.get(c.symbol);
+                      const cls = mark === "best" ? "text-green font-semibold" : mark === "worst" ? "text-red" : "";
+                      return (
+                        <td key={c.symbol} className={`text-right ${cls}`}>{c.company === null && c.analysis === null && !c.loading ? <span className="text-dim">not found</span> : r.fmt(c)}</td>
+                      );
+                    })}
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
       )}
 
       {maxLen > 0 && (
-        <div className="card p-4">
-          <LineChart title="Revenue history ($B, overlaid)" unit="" labels={labels} series={series} />
+        <div className="card p-4 md:p-5">
+          <LineChart title="Revenue over time ($B)" unit="" labels={labels} series={series} height={200} area />
         </div>
       )}
     </div>
