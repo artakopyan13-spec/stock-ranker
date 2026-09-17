@@ -49,6 +49,8 @@ export const Confidence = z.enum(["low", "medium", "high"]);
 // Kept free of numeric min/max and string formats so it maps to the structured-output
 // JSON schema subset. Ranges are enforced by verify.ts.
 export const ModelOutput = z.object({
+  /** Plain-language TL;DR for a beginner: what this is, the one big reason to like it, the main risk, bottom line. */
+  summary: z.string(),
   valuation: z.object({
     primaryMultiple: PrimaryMultiple,
     peakOnPeakCyclical: z.object({
@@ -241,6 +243,7 @@ export const Analysis = z.object({
   newsSource: z.enum(["provider", "web_search", "none"]),
   newsScanNote: z.string().nullable(),
 
+  summary: z.string().optional(),
   business: ModelOutput.shape.business,
   thesis: ModelOutput.shape.thesis,
   catalysts: ModelOutput.shape.catalysts,

@@ -4,6 +4,7 @@ import { useState, type ReactNode } from "react";
 import type { SourcedNumber } from "@/lib/data/types";
 import { FCF_EMOJI, type Action, type FcfVerdict } from "@/lib/analysis/schema";
 import { ago, dateLabel, UNVERIFIED } from "@/lib/format";
+import { InfoDot } from "@/components/Info";
 
 export function RatingChip({ score }: { score: number }) {
   return <span className="chip chip-gold text-sm">★ {score}/10</span>;
@@ -40,12 +41,12 @@ export function StaleBadge({ asOf, days = 7 }: { asOf: string; days?: number }) 
 }
 
 /** A KPI value; hover or focus reveals source + date (style guide: "on hover/footnote"). */
-export function Kpi({ label, value, source, sub, tone }: { label: string; value: string; source?: SourcedNumber | { source: string; asOf: string; url?: string | null }; sub?: string; tone?: "green" | "red" | "gold" }) {
+export function Kpi({ label, value, source, sub, tone, infoId }: { label: string; value: string; source?: SourcedNumber | { source: string; asOf: string; url?: string | null }; sub?: string; tone?: "green" | "red" | "gold"; infoId?: string }) {
   const unverified = value === UNVERIFIED;
   const color = unverified ? "text-dim italic" : tone === "green" ? "text-green" : tone === "red" ? "text-red" : tone === "gold" ? "text-gold" : "text-text";
   return (
     <div className="kpi card-2 p-3 min-w-0" tabIndex={0}>
-      <div className="text-[0.7rem] uppercase tracking-wider text-muted">{label}</div>
+      <div className="text-[0.7rem] uppercase tracking-wider text-muted flex items-center gap-1">{label}{infoId && <InfoDot id={infoId} />}</div>
       <div className={`text-lg font-semibold mt-0.5 truncate ${color}`}>{value}</div>
       {sub && <div className="text-xs text-muted mt-0.5">{sub}</div>}
       {source && (

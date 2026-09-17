@@ -34,7 +34,7 @@ describe("ModelOutput schema", () => {
   });
 
   it("emits keys in the order the prompt specifies (used for streaming)", () => {
-    expect(MODEL_OUTPUT_KEYS[0]).toBe("valuation");
+    expect(MODEL_OUTPUT_KEYS[0]).toBe("summary");
     expect(MODEL_OUTPUT_KEYS.at(-1)).toBe("previousTripwire");
   });
 

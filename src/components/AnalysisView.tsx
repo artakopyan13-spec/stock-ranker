@@ -11,6 +11,12 @@ export function AnalysisView({ analysis, headerRight, compact = false }: { analy
   return (
     <div className="space-y-4">
       <HeaderSection meta={a.meta} price={a.price} rating={a.rating} fcfVerdict={a.fcf.verdict} right={headerRight} />
+      {a.summary && (
+        <div className="card p-4 md:p-5 border-l-2 border-l-gold">
+          <div className="text-xs uppercase tracking-wider text-gold mb-1">In plain terms</div>
+          <p className="text-sm leading-relaxed">{a.summary}</p>
+        </div>
+      )}
       {a.fcf.headlineRisk && (
         <div className="card p-4 border-l-2 border-l-red text-sm">
           <span className="text-red font-semibold">Headline risk:</span> {a.fcf.verdictReason}

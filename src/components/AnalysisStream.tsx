@@ -180,6 +180,12 @@ export function AnalysisStream({ ticker, initialAnalysis, shareUrl, autoStart, s
       {d ? (
         <>
           <HeaderSection meta={d.meta} price={d.price} fcfVerdict={d.fcf.verdict} rating={m.rating ? { ...m.rating, band: "hold", isEstimate: true } : null} />
+          {m.summary && (
+            <div className="card p-4 border-l-2 border-l-gold">
+              <div className="text-xs uppercase tracking-wider text-gold mb-1">In plain terms</div>
+              <p className="text-sm leading-relaxed">{m.summary}</p>
+            </div>
+          )}
           <FcfSection fcf={{ ...d.fcf, verdictReason: m.fcfVerdictReason }} currency={currency} />
           {m.rating ? <RatingSection rating={m.rating} /> : <SkeletonCard lines={2} />}
           {m.thesis ? <ThesisSection thesis={m.thesis} /> : <SkeletonCard lines={4} />}

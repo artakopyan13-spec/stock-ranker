@@ -269,6 +269,7 @@ export function assembleAnalysis(
     }),
     newsSource: data.newsSource,
     newsScanNote: model.newsScanNote,
+    summary: model.summary,
     business: model.business,
     thesis: model.thesis,
     catalysts: model.catalysts,

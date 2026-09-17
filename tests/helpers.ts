@@ -19,6 +19,7 @@ export function sampleModelOutput(data: StockData, overrides: Partial<ModelOutpu
   const f = data.fundamentals;
   const fcfMargin = f.fcfTTM.value !== null && f.revenueTTM.value ? (f.fcfTTM.value / f.revenueTTM.value) * 100 : null;
   const base: ModelOutput = {
+    summary: `In plain terms, this company designs the chips and software that power AI. The big reason to like it is elite free cash flow of ${fmtB(f.fcfTTM.value)} at a ${fmtPct(fcfMargin)} margin, funding buybacks without debt. The main risk is that its handful of huge customers pause spending. Bottom line: strong business, watch the valuation.`,
     valuation: {
       primaryMultiple: "forwardPE",
       peakOnPeakCyclical: {

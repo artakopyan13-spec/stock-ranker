@@ -36,6 +36,7 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
               <Link href="/calendar" className="text-muted hover:text-text no-underline">Calendar</Link>
               <Link href="/w" className="text-muted hover:text-text no-underline">Watchlists</Link>
               <Link href="/changes" className="text-muted hover:text-text no-underline">What changed</Link>
+              <Link href="/learn" className="text-muted hover:text-text no-underline">Learn</Link>
               {user?.role === "admin" && <Link href="/admin" className="text-gold hover:text-text no-underline">Admin</Link>}
             </nav>
             <div className="ml-auto flex items-center gap-3 text-sm">

@@ -86,6 +86,7 @@ function reconciles(n: number, allowed: number[]): boolean {
 
 function proseFields(m: ModelOutput): Array<[string, string]> {
   const out: Array<[string, string]> = [
+    ["summary", m.summary],
     ["fcfVerdictReason", m.fcfVerdictReason],
     ["valuation.peakOnPeakCyclical.reasoning", m.valuation.peakOnPeakCyclical.reasoning],
     ["business.whatItDoes", m.business.whatItDoes],

@@ -7,6 +7,7 @@ import type { DataSections } from "@/lib/analysis/assemble";
 import { ActionChip, Card, Estimate, ExpandableCard, FcfChip, Kpi, RatingChip, StaleBadge, Tag } from "@/components/ui";
 import { BarChart, ForecastBands, LineChart, RangeMarker } from "@/components/charts";
 import { dateLabel, money, multiple, MULTIPLE_LABEL, pct, price as fmtPrice } from "@/lib/format";
+import { InfoDot } from "@/components/Info";
 
 type Meta = DataSections["meta"];
 type Price = Analysis["price"];
@@ -58,7 +59,7 @@ export function PriceSection({ price, currency }: { price: Price; currency: stri
   return (
     <Card title="Price & market context">
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <Kpi label="Market cap" value={money(price.marketCap.value, currency, 2)} source={price.marketCap} />
+        <Kpi label="Market cap" value={money(price.marketCap.value, currency, 2)} source={price.marketCap} infoId="market-cap" />
         <Kpi label="Shares outstanding" value={price.sharesOutstanding.value === null ? "unverified" : `${(price.sharesOutstanding.value / 1e9).toFixed(2)}B`} source={price.sharesOutstanding} sub={price.dilution.note} tone={price.dilution.flag ? "red" : undefined} />
         <Kpi label="52-week low" value={fmtPrice(price.week52Low.value, currency)} source={price.week52Low} />
         <Kpi label="52-week high" value={fmtPrice(price.week52High.value, currency)} source={price.week52High} />
@@ -70,13 +71,14 @@ export function PriceSection({ price, currency }: { price: Price; currency: stri
   );
 }
 
+const VAL_INFO: Record<string, string> = { trailingPE: "pe", forwardPE: "forward-pe", evToEbitda: "ev-ebitda", priceToSales: "ps", priceToFcf: "pfcf", priceToBook: "pe" };
 export function ValuationSection({ valuation }: { valuation: Valuation }) {
   const keys = ["trailingPE", "forwardPE", "evToEbitda", "priceToSales", "priceToFcf", "priceToBook"] as const;
   return (
     <Card title="Valuation" right={valuation.primaryMultiple ? <Tag tone="purple">lens: {MULTIPLE_LABEL[valuation.primaryMultiple]}</Tag> : undefined}>
       <div className="grid grid-cols-3 md:grid-cols-6 gap-3">
         {keys.map((k) => (
-          <Kpi key={k} label={MULTIPLE_LABEL[k]} value={multiple(valuation[k].value)} source={valuation[k]} tone={valuation.primaryMultiple === k ? "gold" : undefined} />
+          <Kpi key={k} label={MULTIPLE_LABEL[k]} value={multiple(valuation[k].value)} source={valuation[k]} tone={valuation.primaryMultiple === k ? "gold" : undefined} infoId={VAL_INFO[k]} />
         ))}
       </div>
       {valuation.peakOnPeakCyclical && (
@@ -96,9 +98,9 @@ export function GrowthSection({ growth, currency }: { growth: Growth; currency: 
     <Card title="Revenue growth & margins">
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <Kpi label="Revenue (TTM)" value={money(growth.revenueTTM.value, currency)} source={growth.revenueTTM} />
-        <Kpi label="Rev growth YoY (latest Q)" value={pct(growth.revenueGrowthYoYLatestQ.value, 1, true)} source={growth.revenueGrowthYoYLatestQ} tone={(growth.revenueGrowthYoYLatestQ.value ?? 0) >= 0 ? "green" : "red"} />
-        <Kpi label="Gross margin" value={pct(growth.grossMarginPct.value)} source={growth.grossMarginPct} />
-        <Kpi label="Operating margin" value={pct(growth.operatingMarginPct.value)} source={growth.operatingMarginPct} sub={`direction: ${dir}`} tone={dir === "deteriorating" ? "red" : dir === "improving" ? "green" : undefined} />
+        <Kpi label="Rev growth YoY (latest Q)" value={pct(growth.revenueGrowthYoYLatestQ.value, 1, true)} source={growth.revenueGrowthYoYLatestQ} tone={(growth.revenueGrowthYoYLatestQ.value ?? 0) >= 0 ? "green" : "red"} infoId="revenue-growth" />
+        <Kpi label="Gross margin" value={pct(growth.grossMarginPct.value)} source={growth.grossMarginPct} infoId="gross-margin" />
+        <Kpi label="Operating margin" value={pct(growth.operatingMarginPct.value)} source={growth.operatingMarginPct} sub={`direction: ${dir}`} tone={dir === "deteriorating" ? "red" : dir === "improving" ? "green" : undefined} infoId="operating-margin" />
       </div>
       <div className="grid md:grid-cols-2 gap-4 mt-4">
         <BarChart title="Quarterly revenue" currency={currency} points={growth.revenueHistory.map((r) => ({ label: qLabel(r.period), value: r.revenue }))} />
@@ -112,12 +114,12 @@ export function GrowthSection({ growth, currency }: { growth: Growth; currency: 
 export function FcfSection({ fcf, currency }: { fcf: Fcf; currency: string }) {
   const tone = fcf.verdict === "healthy" ? "green" : fcf.verdict === "negative" ? "red" : "gold";
   return (
-    <Card title="Free cash flow — #1 KPI" tone={tone} right={<FcfChip verdict={fcf.verdict} large />}>
+    <Card title={<span className="inline-flex items-center gap-1">Free cash flow — #1 KPI <InfoDot id="fcf" /></span>} tone={tone} right={<FcfChip verdict={fcf.verdict} large />}>
       {fcf.headlineRisk && <div className="mb-3 text-sm text-red font-medium">❌ Headline risk: free cash flow is {fcf.verdict === "negative" ? "negative" : "deteriorating"}.</div>}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <Kpi label="FCF (TTM)" value={money(fcf.ttm.value, currency)} source={fcf.ttm} tone={(fcf.ttm.value ?? 0) < 0 ? "red" : "green"} />
+        <Kpi label="FCF (TTM)" value={money(fcf.ttm.value, currency)} source={fcf.ttm} tone={(fcf.ttm.value ?? 0) < 0 ? "red" : "green"} infoId="fcf" />
         <Kpi label="FCF (latest Q)" value={money(fcf.latestQuarter.value, currency)} source={fcf.latestQuarter} />
-        <Kpi label="FCF margin" value={pct(fcf.marginPct.value)} source={fcf.marginPct} />
+        <Kpi label="FCF margin" value={pct(fcf.marginPct.value)} source={fcf.marginPct} infoId="fcf-margin" />
         <Kpi label="Trend" value={fcf.trend} tone={fcf.trend === "deteriorating" ? "red" : fcf.trend === "improving" ? "green" : undefined} sub="TTM vs prior TTM, else YoY" />
       </div>
       <div className="mt-4">
@@ -135,7 +137,7 @@ export function BalanceSection({ balanceSheet, currency, capitalActions }: { bal
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <Kpi label="Cash & investments" value={money(balanceSheet.cash.value, currency)} source={balanceSheet.cash} />
         <Kpi label="Total debt" value={money(balanceSheet.totalDebt.value, currency)} source={balanceSheet.totalDebt} />
-        <Kpi label={balanceSheet.posture === "net_debt" ? "Net debt" : "Net cash"} value={balanceSheet.netCash === null ? "unverified" : money(Math.abs(balanceSheet.netCash), currency)} tone={balanceSheet.posture === "net_debt" ? "red" : "green"} sub={balanceSheet.selfFundsCapex === null ? "capex funding unverified" : balanceSheet.selfFundsCapex ? "self-funds capex" : "cannot self-fund capex"} />
+        <Kpi label={balanceSheet.posture === "net_debt" ? "Net debt" : "Net cash"} infoId="net-cash" value={balanceSheet.netCash === null ? "unverified" : money(Math.abs(balanceSheet.netCash), currency)} tone={balanceSheet.posture === "net_debt" ? "red" : "green"} sub={balanceSheet.selfFundsCapex === null ? "capex funding unverified" : balanceSheet.selfFundsCapex ? "self-funds capex" : "cannot self-fund capex"} />
         <Kpi label="Buybacks (TTM)" value={money(balanceSheet.buybacksTTM.value, currency)} source={balanceSheet.buybacksTTM} sub={balanceSheet.netShareIssuanceTTM.value !== null && balanceSheet.netShareIssuanceTTM.value > 0 ? `net issuance ${money(balanceSheet.netShareIssuanceTTM.value, currency)}` : undefined} />
       </div>
       {(capitalActions ?? balanceSheet.capitalActions) && <p className="mt-3 text-sm text-muted">{capitalActions ?? balanceSheet.capitalActions}</p>}
@@ -243,7 +245,7 @@ export function ThesisSection({ thesis }: { thesis: ModelOutput["thesis"] }) {
 export function CatalystsSection({ catalysts }: { catalysts: ModelOutput["catalysts"] }) {
   const sorted = [...catalysts].sort((a, b) => (a.date === "TBD" ? 1 : b.date === "TBD" ? -1 : a.date.localeCompare(b.date)));
   return (
-    <Card title="Catalysts" tone="purple">
+    <Card title={<span className="inline-flex items-center gap-1">Catalysts <InfoDot id="catalyst" /></span>} tone="purple">
       {sorted.length === 0 && <p className="text-sm text-muted">No dated catalysts identified.</p>}
       <ol className="relative border-l border-line ml-2 space-y-3">
         {sorted.map((c, i) => (
@@ -264,7 +266,7 @@ export function CatalystsSection({ catalysts }: { catalysts: ModelOutput["cataly
 export function RatingSection({ rating }: { rating: ModelOutput["rating"] & { band?: Analysis["rating"]["band"] } }) {
   const band = rating.band ?? bandForScore(rating.score);
   return (
-    <Card title="Rating" tone="gold" right={<Estimate />}>
+    <Card title={<span className="inline-flex items-center gap-1">Rating <InfoDot id="rating" /></span>} tone="gold" right={<Estimate />}>
       <div className="flex items-center gap-3 flex-wrap">
         <RatingChip score={rating.score} />
         <ActionChip action={rating.action} />
@@ -303,7 +305,7 @@ export function ForecastSection({ forecast, currentPrice, currency }: { forecast
 
 export function TripwireSection({ tripwire, previous }: { tripwire: ModelOutput["tripwire"]; previous?: Analysis["previousTripwire"] }) {
   return (
-    <Card title="Tripwire — what flips the rating" tone="gold">
+    <Card title={<span className="inline-flex items-center gap-1">Tripwire — what flips the rating <InfoDot id="tripwire" /></span>} tone="gold">
       <p className="text-sm">{tripwire.description}</p>
       <div className="mt-2 flex gap-2 flex-wrap text-xs">
         <Tag>metric: {tripwire.metric}</Tag>
