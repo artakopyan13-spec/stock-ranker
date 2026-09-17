@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { db } from "@/lib/db";
 import { env } from "@/lib/env";
 import { getLatestAnalysis, isFresh } from "@/lib/analysis/service";
+import { currentUser } from "@/auth";
 import { AnalysisStream } from "@/components/AnalysisStream";
 import { CompanyTabs } from "@/components/company";
 import { shareUrlFor } from "@/lib/share";
@@ -20,7 +21,7 @@ export default async function TickerPage({ params, searchParams }: PageProps<"/t
   const symbol = ticker.toUpperCase();
   if (!/^[A-Z0-9.\-^=]{1,12}$/.test(symbol)) notFound();
   const e = env();
-  const stored = await getLatestAnalysis(symbol);
+  const [stored, user] = await Promise.all([getLatestAnalysis(symbol), currentUser()]);
   if (e.DEMO_MODE && !stored) notFound();
   const tickerRow = await db().ticker.findUnique({ where: { symbol } });
   const shareUrl = tickerRow ? shareUrlFor("", tickerRow.shareToken) : null;
@@ -29,7 +30,7 @@ export default async function TickerPage({ params, searchParams }: PageProps<"/t
   const analysis = (
     <div className="space-y-4">
       {stored && !fresh && !e.DEMO_MODE && <div className="text-xs text-muted">Cached analysis is older than {e.ANALYSIS_TTL_HOURS}h — refreshing automatically.</div>}
-      <AnalysisStream ticker={symbol} initialAnalysis={stored && (fresh || e.DEMO_MODE) ? stored.analysis : null} shareUrl={shareUrl} autoStart={autoStart} />
+      <AnalysisStream ticker={symbol} initialAnalysis={stored && (fresh || e.DEMO_MODE) ? stored.analysis : null} shareUrl={shareUrl} autoStart={autoStart} signedIn={!!user} />
     </div>
   );
   return <CompanyTabs symbol={symbol} analysis={analysis} />;

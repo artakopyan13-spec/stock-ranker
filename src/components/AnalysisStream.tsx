@@ -25,7 +25,7 @@ const initial = (analysis: Analysis | null): StreamState => ({ phase: analysis ?
  * Drives POST /api/analyze (SSE). Code-derived sections render the moment data arrives;
  * model sections appear one by one; the verified document replaces everything on `done`.
  */
-export function AnalysisStream({ ticker, initialAnalysis, shareUrl, autoStart }: { ticker: string; initialAnalysis: Analysis | null; shareUrl: string | null; autoStart: boolean }) {
+export function AnalysisStream({ ticker, initialAnalysis, shareUrl, autoStart, signedIn = false }: { ticker: string; initialAnalysis: Analysis | null; shareUrl: string | null; autoStart: boolean; signedIn?: boolean }) {
   const [state, setState] = useState<StreamState>(() => initial(initialAnalysis));
   const abortRef = useRef<AbortController | null>(null);
 
@@ -124,8 +124,8 @@ export function AnalysisStream({ ticker, initialAnalysis, shareUrl, autoStart }:
         <div className="text-lg font-semibold">Fresh analysis unavailable right now</div>
         <p className="text-muted text-sm mt-2 max-w-md mx-auto">{state.notice}</p>
         <div className="mt-4 flex gap-2 justify-center">
-          <a href="/signin" className="btn btn-primary no-underline">Sign in</a>
-          <button type="button" className="btn" onClick={() => run(false)}>Try again</button>
+          {!signedIn && <a href="/signin" className="btn btn-primary no-underline">Sign in</a>}
+          <button type="button" className={`btn ${signedIn ? "btn-primary" : ""}`} onClick={() => run(false)}>Try again</button>
         </div>
       </div>
     );
