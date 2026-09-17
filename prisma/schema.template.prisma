@@ -76,6 +76,7 @@ model Watchlist {
   slug      String   @unique
   name      String
   userId    String?  // null = seeded/global (e.g. demo)
+  isPublic  Boolean  @default(false)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -165,6 +166,7 @@ model User {
   id            String    @id @default(cuid())
   name          String?
   email         String?   @unique
+  username      String?   @unique
   emailVerified DateTime?
   image         String?
   role          String    @default("user") // user | admin

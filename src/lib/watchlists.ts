@@ -6,6 +6,7 @@ export interface WatchlistSummary {
   name: string;
   symbols: string[];
   userId: string | null;
+  isPublic: boolean;
   updatedAt: Date;
 }
 
@@ -29,8 +30,8 @@ export function normalizeSymbols(input: string[]): string[] {
   return out;
 }
 
-function toSummary(w: { id: string; slug: string; name: string; userId: string | null; updatedAt: Date; items: { symbol: string }[] }): WatchlistSummary {
-  return { id: w.id, slug: w.slug, name: w.name, userId: w.userId, symbols: w.items.map((i) => i.symbol), updatedAt: w.updatedAt };
+function toSummary(w: { id: string; slug: string; name: string; userId: string | null; isPublic: boolean; updatedAt: Date; items: { symbol: string }[] }): WatchlistSummary {
+  return { id: w.id, slug: w.slug, name: w.name, userId: w.userId, isPublic: w.isPublic, symbols: w.items.map((i) => i.symbol), updatedAt: w.updatedAt };
 }
 
 /** A user's own watchlists (plus seeded/global ones when `includeGlobal`). */

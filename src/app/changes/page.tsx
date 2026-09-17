@@ -8,8 +8,8 @@ import { dateLabel } from "@/lib/format";
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "What changed" };
 
-const TYPES: ChangeType[] = ["rating_change", "verdict_flip", "tripwire", "fcf_negative"];
-const TONE: Record<ChangeType, string> = { rating_change: "chip-gold", verdict_flip: "chip-purple", tripwire: "chip-red", fcf_negative: "chip-red" };
+const TYPES: ChangeType[] = ["opportunity", "rating_change", "verdict_flip", "tripwire", "fcf_negative"];
+const TONE: Record<ChangeType, string> = { opportunity: "chip-green", rating_change: "chip-gold", verdict_flip: "chip-purple", tripwire: "chip-red", fcf_negative: "chip-red" };
 
 export default async function ChangesPage({ searchParams }: PageProps<"/changes">) {
   const sp = await searchParams;
