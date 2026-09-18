@@ -41,6 +41,14 @@ export default async function CostsPage() {
   }
   const total30 = logs.reduce((s, l) => s + l.usd, 0);
   const nightly = Math.min(watched.length, e.MAX_CRON_TICKERS);
+  const byKind = new Map<string, { usd: number; calls: number }>();
+  for (const l of logs) {
+    const cur = byKind.get(l.kind) ?? { usd: 0, calls: 0 };
+    cur.usd += l.usd;
+    cur.calls += 1;
+    byKind.set(l.kind, cur);
+  }
+  const kinds = [...byKind.entries()].sort((a, b) => b[1].usd - a[1].usd);
 
   return (
     <div className="space-y-6">
@@ -62,6 +70,21 @@ export default async function CostsPage() {
             {byDay.size === 0 && <tr><td colSpan={5} className="text-muted">No model calls logged yet.</td></tr>}
           </tbody>
         </table>
+      </section>
+
+      <section>
+        <h2 className="text-sm font-semibold uppercase tracking-wider text-muted mb-2">Spend by kind (30 days)</h2>
+        <div className="card overflow-x-auto">
+          <table className="tbl w-full text-sm">
+            <thead><tr><th>Kind</th><th>Calls</th><th>USD</th></tr></thead>
+            <tbody>
+              {kinds.map(([kind, v]) => (
+                <tr key={kind}><td>{kind}</td><td>{v.calls}</td><td className="text-gold">${v.usd.toFixed(3)}</td></tr>
+              ))}
+              {kinds.length === 0 && <tr><td colSpan={3} className="text-muted">No model calls logged yet.</td></tr>}
+            </tbody>
+          </table>
+        </div>
       </section>
 
       <section>
