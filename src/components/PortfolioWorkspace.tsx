@@ -1,10 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import Link from "next/link";
-import type { EnrichedHolding, Holding, PortfolioMetrics, PortfolioPayload, PortfolioReview } from "@/lib/portfolio/schema";
+import type { EnrichedHolding, Holding, PortfolioMetrics, PortfolioPayload } from "@/lib/portfolio/schema";
+import type { PortfolioReviewV2 } from "@/lib/portfolio/review-schema";
 import { FCF_EMOJI } from "@/lib/analysis/schema";
 import { ChatPanel } from "@/components/ChatPanel";
+import { PortfolioDashboard } from "@/components/PortfolioDashboard";
 import { money, pct } from "@/lib/format";
 
 const ACTION_TONE: Record<string, string> = { BUY: "text-green", HOLD: "text-gold", SELL: "text-red" };
@@ -23,22 +25,33 @@ function diversificationLabel(hhi: number | null): { label: string; tone: string
   if (hhi < 0.25) return { label: "Moderate", tone: "text-gold" };
   return { label: "Concentrated", tone: "text-red" };
 }
+function readAsBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve((reader.result as string).split(",")[1] ?? "");
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+}
 
 export function PortfolioWorkspace({ initial, signedIn }: { initial: PortfolioPayload | null; signedIn: boolean }) {
   const [pf, setPf] = useState<PortfolioPayload | null>(initial);
   const [editing, setEditing] = useState(!initial || initial.holdings.length === 0);
   const [text, setText] = useState("");
   const [cash, setCash] = useState(initial?.cashUsd ? String(initial.cashUsd) : "");
+  const [newCash, setNewCash] = useState(initial?.newCashUsd ? String(initial.newCashUsd) : "");
   const [notes, setNotes] = useState(initial?.notes ?? "");
   const [saving, setSaving] = useState(false);
   const [reviewing, setReviewing] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
 
   if (!signedIn) {
     return (
       <div className="card p-8 text-center">
         <div className="text-lg font-semibold">Sign in to X-ray your portfolio</div>
-        <p className="text-muted text-sm mt-2 max-w-md mx-auto">Paste your holdings and get an honest, source-verified review — concentration, hidden single bets, weak free-cash-flow exposure — then chat about it.</p>
+        <p className="text-muted text-sm mt-2 max-w-md mx-auto">Paste holdings or upload a statement, and get an honest, FCF-first review — concentration, price zones, sell/trim/hold with tax notes, and ideas to fill the gaps — then chat about it.</p>
         <a href="/signin" className="btn btn-primary no-underline mt-4 inline-block">Sign in</a>
       </div>
     );
@@ -62,18 +75,49 @@ export function PortfolioWorkspace({ initial, signedIn }: { initial: PortfolioPa
     }
   }
 
-  const importText = () => save({ text, cashUsd: cash ? Number(cash) : 0, notes: notes.trim() || null });
+  const importText = () => save({ text, cashUsd: cash ? Number(cash) : 0, newCashUsd: newCash ? Number(newCash) : 0, notes: notes.trim() || null });
   const removeHolding = (symbol: string) => {
     if (!pf) return;
-    void save({ holdings: pf.holdings.filter((h) => h.symbol !== symbol).map(toHolding), cashUsd: pf.cashUsd, notes: pf.notes });
+    void save({ holdings: pf.holdings.filter((h) => h.symbol !== symbol).map(toHolding), cashUsd: pf.cashUsd, newCashUsd: pf.newCashUsd, notes: pf.notes });
   };
+
+  async function onFile(file: File) {
+    setUploading(true);
+    setNotice(null);
+    try {
+      const isCsv = /\.csv$/i.test(file.name) || file.type === "text/csv";
+      const isPdf = file.type === "application/pdf" || /\.pdf$/i.test(file.name);
+      let body: Record<string, unknown>;
+      if (isCsv) {
+        body = { kind: "csv", text: await file.text() };
+      } else if (isPdf) {
+        body = { kind: "pdf", mediaType: "application/pdf", dataBase64: await readAsBase64(file) };
+      } else {
+        body = { kind: "image", mediaType: file.type || "image/png", dataBase64: await readAsBase64(file) };
+      }
+      const res = await fetch("/api/portfolio/import", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+      const d = (await res.json()) as { portfolio?: PortfolioPayload; imported?: number; note?: string | null; error?: string; notice?: { message: string } };
+      if (d.error) setNotice(d.error);
+      if (d.notice) setNotice(d.notice.message);
+      if (d.portfolio) {
+        setPf(d.portfolio);
+        setEditing(false);
+        setNotice(`Imported ${d.imported ?? 0} position${d.imported === 1 ? "" : "s"}${d.note ? ` — ${d.note}` : ""}.`);
+      }
+    } catch {
+      setNotice("Could not read that file.");
+    } finally {
+      setUploading(false);
+      if (fileRef.current) fileRef.current.value = "";
+    }
+  }
 
   async function runReview() {
     setReviewing(true);
     setNotice(null);
     try {
       const res = await fetch("/api/portfolio/review", { method: "POST" });
-      const d = (await res.json()) as { review?: PortfolioReview; notice?: { message: string }; error?: string };
+      const d = (await res.json()) as { review?: PortfolioReviewV2; notice?: { message: string }; error?: string };
       if (d.review && pf) setPf({ ...pf, review: d.review, reviewAt: new Date().toISOString() });
       if (d.notice) setNotice(d.notice.message);
       if (d.error) setNotice(d.error);
@@ -92,21 +136,32 @@ export function PortfolioWorkspace({ initial, signedIn }: { initial: PortfolioPa
 
       {(editing || !hasHoldings) && (
         <div className="card p-4 space-y-3">
-          <div className="text-sm font-semibold">{hasHoldings ? "Edit / re-import holdings" : "Add your holdings"}</div>
-          <textarea value={text} onChange={(e) => setText(e.target.value)} placeholder={PLACEHOLDER} rows={6} className="w-full text-sm font-mono" />
-          <div className="grid sm:grid-cols-2 gap-3">
+          <div className="text-sm font-semibold">{hasHoldings ? "Edit / add holdings" : "Add your holdings"}</div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <input ref={fileRef} type="file" accept="image/*,application/pdf,.csv,text/csv" className="hidden" onChange={(e) => e.target.files?.[0] && onFile(e.target.files[0])} />
+            <button type="button" className="btn" disabled={uploading} onClick={() => fileRef.current?.click()}>{uploading ? "Reading…" : "📎 Upload statement or CSV"}</button>
+            <span className="text-xs text-dim">Screenshot / PDF of your holdings, or a brokerage activity CSV (unlocks the all-time scorecard).</span>
+          </div>
+
+          <div className="text-xs text-dim">— or paste —</div>
+          <textarea value={text} onChange={(e) => setText(e.target.value)} placeholder={PLACEHOLDER} rows={5} className="w-full text-sm font-mono" />
+          <div className="grid sm:grid-cols-3 gap-3">
             <label className="text-xs text-muted">Cash (USD)
               <input value={cash} onChange={(e) => setCash(e.target.value.replace(/[^\d.]/g, ""))} placeholder="0" className="w-full mt-1 text-sm" inputMode="decimal" />
             </label>
-            <label className="text-xs text-muted">Your goals / horizon / risk tolerance (optional)
-              <input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="e.g. long-term, high risk tolerance, want more income" className="w-full mt-1 text-sm" />
+            <label className="text-xs text-muted">New cash to deploy (USD)
+              <input value={newCash} onChange={(e) => setNewCash(e.target.value.replace(/[^\d.]/g, ""))} placeholder="0" className="w-full mt-1 text-sm" inputMode="decimal" />
+            </label>
+            <label className="text-xs text-muted">Goals / horizon / risk (optional)
+              <input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="long-term, high risk tolerance…" className="w-full mt-1 text-sm" />
             </label>
           </div>
           <div className="flex gap-2">
-            <button className="btn btn-primary" disabled={saving || (!text.trim() && !hasHoldings)} onClick={importText}>{saving ? "Saving…" : hasHoldings ? "Import & merge" : "Analyze portfolio"}</button>
+            <button className="btn btn-primary" disabled={saving || (!text.trim() && !hasHoldings)} onClick={importText}>{saving ? "Saving…" : hasHoldings ? "Save" : "Analyze portfolio"}</button>
             {hasHoldings && <button className="btn" onClick={() => setEditing(false)}>Cancel</button>}
           </div>
-          <p className="text-[0.65rem] text-dim">Parsed on the server — the table below shows what was understood. Your holdings are private to your account. Not financial advice.</p>
+          <p className="text-[0.65rem] text-dim">Your holdings are private to your account. Not financial advice.</p>
         </div>
       )}
 
@@ -115,13 +170,15 @@ export function PortfolioWorkspace({ initial, signedIn }: { initial: PortfolioPa
           <Metrics m={pf.metrics} onEdit={() => setEditing(true)} />
           <HoldingsTable holdings={pf.holdings} onRemove={removeHolding} />
 
-          <div className="card p-4 space-y-3">
-            <div className="flex items-center justify-between">
-              <div className="text-sm font-semibold">Honest review</div>
-              <button className="btn btn-primary py-1 px-3 text-sm" disabled={reviewing} onClick={runReview}>{reviewing ? "Reviewing…" : pf.review ? "Refresh review" : "Generate review"}</button>
+          <div className="card p-4 flex items-center justify-between gap-3 flex-wrap">
+            <div>
+              <div className="text-sm font-semibold">Full review {pf.hasActivity && <span className="chip chip-green ml-1">activity loaded</span>}</div>
+              <p className="text-xs text-muted mt-1">FCF-first cards, price zones, sell/trim/hold with tax notes, ideas to fill the gaps{pf.newCashUsd > 0 ? `, and a plan for ${money(pf.newCashUsd, "USD", 0)}` : ""}.</p>
             </div>
-            {pf.review ? <ReviewView review={pf.review} /> : <p className="text-sm text-muted">Get a candid read on concentration, hidden correlated bets, free-cash-flow quality, and what to consider — grounded in each holding&rsquo;s verified rating.</p>}
+            <button className="btn btn-primary" disabled={reviewing} onClick={runReview}>{reviewing ? "Reviewing… (~30s)" : pf.review ? "Refresh review" : "Generate full review"}</button>
           </div>
+
+          {pf.review && <PortfolioDashboard review={pf.review} />}
 
           <div>
             <div className="text-sm font-semibold mb-2">Chat about your portfolio</div>
@@ -131,8 +188,8 @@ export function PortfolioWorkspace({ initial, signedIn }: { initial: PortfolioPa
               historyUrl="/api/portfolio/chat"
               signedIn={signedIn}
               placeholder="Ask about your portfolio…"
-              emptyHint="Ask anything about your holdings — concentration, what to watch, where you're doubling up. Grounded in your positions and their verified ratings."
-              suggestions={["Where am I most concentrated?", "What's my biggest hidden risk?", "Which holdings have weak cash flow?", "Am I too tech-heavy?"]}
+              emptyHint="Ask anything — concentration, what to watch, where you're doubling up, at what price to add to X. Grounded in your positions and their verified ratings."
+              suggestions={["Where am I most concentrated?", "What's my biggest hidden risk?", "At what price should I add to my top holding?", "Am I too tech-heavy?"]}
             />
           </div>
         </>
@@ -220,57 +277,6 @@ function HoldingsTable({ holdings, onRemove }: { holdings: EnrichedHolding[]; on
           ))}
         </tbody>
       </table>
-    </div>
-  );
-}
-
-function ReviewView({ review }: { review: PortfolioReview }) {
-  return (
-    <div className="space-y-4">
-      <div className="flex items-center gap-3 flex-wrap">
-        <span className="text-2xl font-bold">{review.score}/10</span>
-        <span className="text-sm font-medium">{review.headline}</span>
-      </div>
-      <p className="text-sm leading-relaxed text-muted">{review.summary}</p>
-      <div className="card-2 p-3 border-l-2 border-l-red">
-        <div className="text-xs uppercase tracking-wider text-red mb-1">Concentration</div>
-        <p className="text-sm">{review.concentration}</p>
-      </div>
-      {review.themes.length > 0 && (
-        <div>
-          <div className="text-xs uppercase tracking-wider text-muted mb-2">Bets that move together</div>
-          <div className="grid sm:grid-cols-2 gap-2">
-            {review.themes.map((t) => (
-              <div key={t.name} className="card-2 p-3">
-                <div className="text-sm font-medium">{t.name} <span className="text-xs text-dim">{t.tickers.join(", ")}</span></div>
-                <p className="text-xs text-muted mt-1">{t.note}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-      <div className="grid md:grid-cols-3 gap-3">
-        <Column title="Strengths" items={review.strengths} tone="text-green" />
-        <Column title="Risks" items={review.risks} tone="text-red" />
-        <Column title="Gaps" items={review.gaps} tone="text-gold" />
-      </div>
-      {review.questionsToConsider.length > 0 && (
-        <div>
-          <div className="text-xs uppercase tracking-wider text-muted mb-2">Questions to consider</div>
-          <ul className="list-disc ml-5 text-sm text-muted space-y-1">{review.questionsToConsider.map((q, i) => <li key={i}>{q}</li>)}</ul>
-        </div>
-      )}
-      <p className="text-[0.65rem] text-dim">A construction review of what you hold, grounded in each name&rsquo;s verified rating — not a recommendation to buy or sell. Not financial advice.</p>
-    </div>
-  );
-}
-
-function Column({ title, items, tone }: { title: string; items: string[]; tone: string }) {
-  if (!items.length) return null;
-  return (
-    <div>
-      <div className={`text-xs uppercase tracking-wider mb-2 ${tone}`}>{title}</div>
-      <ul className="space-y-1 text-sm text-muted">{items.map((s, i) => <li key={i}>{s}</li>)}</ul>
     </div>
   );
 }

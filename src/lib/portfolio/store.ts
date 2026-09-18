@@ -1,14 +1,17 @@
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { getQuotes } from "@/lib/data/quotes";
-import { Holding, PortfolioReview, type EnrichedHolding, type HoldingsInput, type PortfolioMetrics, type PortfolioPayload } from "@/lib/portfolio/schema";
+import { Holding, type EnrichedHolding, type HoldingsInput, type PortfolioMetrics, type PortfolioPayload } from "@/lib/portfolio/schema";
+import { isReviewV2, type PortfolioReviewV2 } from "@/lib/portfolio/review-schema";
 
 type Row = {
   id: string;
   name: string;
   notes: string | null;
   cashUsd: number;
+  newCashUsd: number;
   holdings: string;
+  alltime: string | null;
   review: string | null;
   reviewAt: Date | null;
   updatedAt: Date;
@@ -31,11 +34,20 @@ export async function getPortfolioRow(userId: string): Promise<Row | null> {
   return db().portfolio.findFirst({ where: { userId }, orderBy: { updatedAt: "desc" } });
 }
 
+export interface SaveInput extends HoldingsInput {
+  newCashUsd?: number;
+  alltime?: string | null;
+}
+
 /** Create or update the user's portfolio. Editing holdings invalidates the stored review. */
-export async function savePortfolio(userId: string, input: HoldingsInput): Promise<Row> {
+export async function savePortfolio(userId: string, input: SaveInput): Promise<Row> {
   const existing = await getPortfolioRow(userId);
   const holdingsJson = JSON.stringify(input.holdings);
   const holdingsChanged = !existing || existing.holdings !== holdingsJson;
+  const extra = {
+    ...(input.newCashUsd !== undefined ? { newCashUsd: input.newCashUsd } : {}),
+    ...(input.alltime !== undefined ? { alltime: input.alltime } : {}),
+  };
   if (existing) {
     return db().portfolio.update({
       where: { id: existing.id },
@@ -43,11 +55,12 @@ export async function savePortfolio(userId: string, input: HoldingsInput): Promi
         holdings: holdingsJson,
         cashUsd: input.cashUsd,
         notes: input.notes,
+        ...extra,
         ...(holdingsChanged ? { review: null, reviewAt: null } : {}),
       },
     });
   }
-  return db().portfolio.create({ data: { userId, holdings: holdingsJson, cashUsd: input.cashUsd, notes: input.notes } });
+  return db().portfolio.create({ data: { userId, holdings: holdingsJson, cashUsd: input.cashUsd, notes: input.notes, ...extra } });
 }
 
 /** Prices (Yahoo batch) + each holding's latest verified AI rating and sector, then honest metrics. */
@@ -123,10 +136,11 @@ export async function enrich(row: Row): Promise<{ holdings: EnrichedHolding[]; m
   return { holdings: enriched, metrics };
 }
 
-export function parseReview(json: string | null): PortfolioReview | null {
+export function parseReview(json: string | null): PortfolioReviewV2 | null {
   if (!json) return null;
   try {
-    return PortfolioReview.parse(JSON.parse(json));
+    const v = JSON.parse(json);
+    return isReviewV2(v) ? (v as PortfolioReviewV2) : null;
   } catch {
     return null;
   }
@@ -139,6 +153,8 @@ export async function toPayload(row: Row): Promise<PortfolioPayload> {
     name: row.name,
     notes: row.notes,
     cashUsd: row.cashUsd,
+    newCashUsd: row.newCashUsd,
+    hasActivity: Boolean(row.alltime),
     holdings,
     metrics,
     review: parseReview(row.review),

@@ -13,8 +13,8 @@ export interface RateResult {
  * `subject` is e.g. `user:<id>` or `ip:<addr>`. The window key rolls each minute so old
  * rows are harmless; a periodic cleanup (cron) prunes them.
  */
-export async function rateLimit(subject: string, now = new Date()): Promise<RateResult> {
-  const limit = env().RATE_LIMIT_PER_MIN;
+export async function rateLimit(subject: string, now = new Date(), limitOverride?: number): Promise<RateResult> {
+  const limit = limitOverride ?? env().RATE_LIMIT_PER_MIN;
   const minute = Math.floor(now.getTime() / 60_000);
   const key = `${subject}:min:${minute}`;
   const row = await db().rateLimit.upsert({

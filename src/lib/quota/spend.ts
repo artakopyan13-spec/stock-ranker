@@ -10,9 +10,9 @@ export async function spendToday(now = new Date()): Promise<number> {
   return rows._sum.usd ?? 0;
 }
 
-/** Kinds that consume a "fresh analysis" credit — real analyses and committee debates. */
-const FRESH_KINDS = ["analysis", "batch_analysis", "committee"];
-const USER_FRESH_KINDS = ["analysis", "committee"];
+/** Kinds that consume a "fresh analysis" credit — real analyses, committee debates, full portfolio reviews. */
+const FRESH_KINDS = ["analysis", "batch_analysis", "committee", "portfolio_review"];
+const USER_FRESH_KINDS = ["analysis", "committee", "portfolio_review"];
 
 /** Fresh + batch analyses + committees run since UTC midnight (global cap counter). */
 export async function analysesToday(now = new Date()): Promise<number> {

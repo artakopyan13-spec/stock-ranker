@@ -1,18 +1,17 @@
 import { currentUser } from "@/auth";
 import { clientIp } from "@/lib/request";
-import { env } from "@/lib/env";
-import { AI_ACTION_KINDS, gateAiAction } from "@/lib/quota/gate";
+import { gateFreshAnalysis } from "@/lib/quota/gate";
 import { generateReview } from "@/lib/portfolio/review";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 120;
+export const maxDuration = 180;
 
-/** POST — generate the honest AI review of the user's portfolio (gated AI action). */
+/** POST — generate the full portfolio review (heavy: gated as a fresh-analysis credit). */
 export async function POST(req: Request): Promise<Response> {
   const user = await currentUser();
   if (!user) return Response.json({ error: "Sign in first." }, { status: 401 });
 
-  const gate = await gateAiAction({ userId: user.id, ip: clientIp(req), kinds: AI_ACTION_KINDS, dailyCap: env().FREE_DAILY_CHAT_MESSAGES });
+  const gate = await gateFreshAnalysis({ userId: user.id, ip: clientIp(req) });
   if (!gate.allow) return Response.json({ notice: { reason: gate.reason, message: gate.message } });
 
   try {

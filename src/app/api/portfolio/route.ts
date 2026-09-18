@@ -14,6 +14,7 @@ const Body = z.object({
   text: z.string().max(8000).optional(),
   holdings: z.array(Holding).max(60).optional(),
   cashUsd: z.number().min(0).max(1e12).optional(),
+  newCashUsd: z.number().min(0).max(1e12).optional(),
   notes: z.string().max(1200).nullable().optional(),
 });
 
@@ -58,6 +59,7 @@ export async function POST(req: Request): Promise<Response> {
   const row = await savePortfolio(user.id, {
     holdings,
     cashUsd: parsed.data.cashUsd ?? existing?.cashUsd ?? 0,
+    newCashUsd: parsed.data.newCashUsd ?? existing?.newCashUsd ?? 0,
     notes: parsed.data.notes ?? existing?.notes ?? null,
   });
   return Response.json({ portfolio: await toPayload(row) });

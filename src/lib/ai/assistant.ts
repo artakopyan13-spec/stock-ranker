@@ -62,12 +62,24 @@ export async function runAssistantJson<T>(args: {
   maxTokens?: number;
   effort?: "low" | "medium" | "high" | "xhigh" | "max";
 }): Promise<StructuredResult<T>> {
+  return runAssistantJsonContent({ ...args, content: args.user });
+}
+
+/** Same as runAssistantJson but the user content can be text or content blocks (e.g. an image/PDF for extraction). */
+export async function runAssistantJsonContent<T>(args: {
+  system: string;
+  content: string | Anthropic.ContentBlockParam[];
+  schema: z.ZodType<T>;
+  model?: string;
+  maxTokens?: number;
+  effort?: "low" | "medium" | "high" | "xhigh" | "max";
+}): Promise<StructuredResult<T>> {
   const model = args.model ?? env().ASSISTANT_MODEL;
   const params: Anthropic.MessageCreateParamsNonStreaming = {
     model,
     max_tokens: args.maxTokens ?? 4096,
     system: [{ type: "text", text: args.system, cache_control: SYSTEM_CACHE }],
-    messages: [{ role: "user", content: args.user }],
+    messages: [{ role: "user", content: args.content }],
     output_config: {
       ...(args.effort ? { effort: args.effort } : {}),
       format: zodOutputFormat(args.schema as z.ZodType),
@@ -76,6 +88,47 @@ export async function runAssistantJson<T>(args: {
   const message = await anthropic().messages.create(params);
   const { text, usage, model: resolved } = finalizeText(message, model);
   return { value: args.schema.parse(JSON.parse(text)), usage, model: resolved };
+}
+
+/**
+ * For very large output shapes where a compiled structured-output grammar would be too big:
+ * ask for raw JSON and parse it leniently. No grammar compilation, so no size limit.
+ */
+export async function runAssistantJsonLoose<T>(args: {
+  system: string;
+  user: string;
+  schema: z.ZodType<T>;
+  model?: string;
+  maxTokens?: number;
+  effort?: "low" | "medium" | "high" | "xhigh" | "max";
+}): Promise<StructuredResult<T>> {
+  const model = args.model ?? env().ASSISTANT_MODEL;
+  const params: Anthropic.MessageCreateParamsNonStreaming = {
+    model,
+    max_tokens: args.maxTokens ?? 8000,
+    system: [{ type: "text", text: `${args.system}\n\nRespond with ONLY a single valid minified JSON object — no prose, no markdown code fences.`, cache_control: SYSTEM_CACHE }],
+    messages: [{ role: "user", content: args.user }],
+    ...(args.effort ? { output_config: { effort: args.effort } } : {}),
+  };
+  const message = await anthropic().messages.create(params);
+  const { text, usage, model: resolved } = finalizeText(message, model);
+  try {
+    return { value: args.schema.parse(extractJson(text)), usage, model: resolved };
+  } catch (err) {
+    console.error(`[assistant] loose JSON parse failed (stop=${message.stop_reason}, len=${text.length}):`, err instanceof Error ? err.message.slice(0, 800) : err);
+    console.error(`[assistant] tail: …${text.slice(-300)}`);
+    throw new Error(message.stop_reason === "max_tokens" ? "The review was too long and got cut off. Try again." : "The review came back malformed. Try again.");
+  }
+}
+
+function extractJson(text: string): unknown {
+  let t = text.trim();
+  const fence = t.match(/```(?:json)?\s*([\s\S]*?)```/);
+  if (fence) t = fence[1].trim();
+  const start = t.indexOf("{");
+  const end = t.lastIndexOf("}");
+  if (start >= 0 && end > start) t = t.slice(start, end + 1);
+  return JSON.parse(t);
 }
 
 function finalizeText(message: Anthropic.Message, model: string): AssistantResult {

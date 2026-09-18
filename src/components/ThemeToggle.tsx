@@ -17,6 +17,7 @@ export function ThemeToggle() {
       /* ignore */
     }
     const active = stored ?? (document.documentElement.dataset.theme as Theme | undefined) ?? (window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark");
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setTheme(active);
   }, []);
 

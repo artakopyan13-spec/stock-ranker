@@ -184,16 +184,18 @@ model User {
 
 /// A user's portfolio for the X-Ray honest review + chat. Holdings are JSON, validated on read.
 model Portfolio {
-  id        String    @id @default(cuid())
-  userId    String
-  name      String    @default("My portfolio")
-  holdings  String    // JSON Holding[]
-  cashUsd   Float     @default(0)
-  notes     String?   // goals, horizon, risk tolerance — free text the user provides
-  review    String?   // JSON PortfolioReview (AI output); null until generated
-  reviewAt  DateTime?
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
+  id         String    @id @default(cuid())
+  userId     String
+  name       String    @default("My portfolio")
+  holdings   String    // JSON Holding[]
+  cashUsd    Float     @default(0)
+  newCashUsd Float     @default(0) // cash the user wants to deploy (drives the "plan for new cash")
+  notes      String?   // goals, horizon, risk tolerance — free text the user provides
+  alltime    String?   // JSON ActivityResult from an uploaded brokerage activity CSV
+  review     String?   // JSON PortfolioReview (AI output); null until generated
+  reviewAt   DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
