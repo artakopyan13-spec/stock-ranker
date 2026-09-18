@@ -5,6 +5,9 @@ import type { CompanyData, FinancialRow, PricePoint, PriceRange } from "@/lib/da
 import { BarChart, LineChart } from "@/components/charts";
 import { compact, dateLabel, money, multiple, pct, price as fmtPrice } from "@/lib/format";
 import { SkeletonCard, Card, Tag } from "@/components/ui";
+import { ChatPanel } from "@/components/ChatPanel";
+import { Committee } from "@/components/Committee";
+import { TimeMachine } from "@/components/TimeMachine";
 
 const qLabel = (p: string) => {
   const [y, m] = p.split("-");
@@ -289,16 +292,17 @@ export function Overview({ data }: { data: CompanyData }) {
 }
 
 // ---------- Tab wrapper ----------
-type TabId = "analysis" | "financials" | "charts" | "overview";
+type TabId = "analysis" | "committee" | "copilot" | "timemachine" | "financials" | "charts" | "overview";
+const DATA_TABS: TabId[] = ["financials", "charts", "overview"];
 
-export function CompanyTabs({ symbol, analysis }: { symbol: string; analysis: React.ReactNode }) {
+export function CompanyTabs({ symbol, analysis, signedIn = false }: { symbol: string; analysis: React.ReactNode; signedIn?: boolean }) {
   const [tab, setTab] = useState<TabId>("analysis");
   const [data, setData] = useState<CompanyData | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (tab === "analysis" || data || loading) return;
+    if (!DATA_TABS.includes(tab) || data || loading) return;
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setLoading(true);
     fetch(`/api/company/${symbol}`)
@@ -308,7 +312,15 @@ export function CompanyTabs({ symbol, analysis }: { symbol: string; analysis: Re
       .finally(() => setLoading(false));
   }, [tab, symbol, data, loading]);
 
-  const tabs: Array<[TabId, string]> = [["analysis", "AI analysis"], ["financials", "Financials"], ["charts", "Charts"], ["overview", "Overview"]];
+  const tabs: Array<[TabId, string]> = [
+    ["analysis", "AI analysis"],
+    ["committee", "Committee"],
+    ["copilot", "Ask this stock"],
+    ["timemachine", "Time machine"],
+    ["financials", "Financials"],
+    ["charts", "Charts"],
+    ["overview", "Overview"],
+  ];
   return (
     <div className="space-y-4">
       <div className="flex gap-1 border-b border-line overflow-x-auto">
@@ -317,7 +329,20 @@ export function CompanyTabs({ symbol, analysis }: { symbol: string; analysis: Re
         ))}
       </div>
       <div hidden={tab !== "analysis"}>{analysis}</div>
-      {tab !== "analysis" && (
+      {tab === "committee" && <Committee symbol={symbol} signedIn={signedIn} />}
+      {tab === "timemachine" && <TimeMachine symbol={symbol} />}
+      {tab === "copilot" && (
+        <ChatPanel
+          endpoint="/api/ticker-chat"
+          body={{ ticker: symbol }}
+          historyUrl={`/api/ticker-chat?ticker=${symbol}`}
+          signedIn={signedIn}
+          placeholder={`Ask about ${symbol}…`}
+          emptyHint={`Ask anything about ${symbol}. Answers come only from the verified analysis and financials on this page — with dates — and it won't invent numbers.`}
+          suggestions={["Why this rating?", "What's the biggest risk?", "Is free cash flow healthy?", "What would change the thesis?"]}
+        />
+      )}
+      {DATA_TABS.includes(tab) && (
         loading ? <SkeletonCard lines={5} /> : error ? <div className="card p-6 text-sm text-red">{error}</div> : data ? (
           <>
             {tab === "financials" && <Financials data={data} />}

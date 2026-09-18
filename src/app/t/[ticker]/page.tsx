@@ -40,7 +40,7 @@ export default async function TickerPage({ params, searchParams }: PageProps<"/t
         <div className="text-lg font-semibold">{symbol}</div>
         {!e.DEMO_MODE && <AddToWatchlist symbol={symbol} />}
       </div>
-      <CompanyTabs symbol={symbol} analysis={analysis} />
+      <CompanyTabs symbol={symbol} analysis={analysis} signedIn={!!user} />
     </div>
   );
 }

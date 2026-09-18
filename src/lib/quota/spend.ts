@@ -19,3 +19,8 @@ export async function analysesToday(now = new Date()): Promise<number> {
 export async function userAnalysesToday(userId: string, now = new Date()): Promise<number> {
   return db().usageLog.count({ where: { kind: "analysis", userId, createdAt: { gte: startOfUtcDay(now) } } });
 }
+
+/** How many calls of the given kind(s) a user made today — powers the per-kind daily caps (chat, command). */
+export async function userActionsToday(userId: string, kinds: string[], now = new Date()): Promise<number> {
+  return db().usageLog.count({ where: { kind: { in: kinds }, userId, createdAt: { gte: startOfUtcDay(now) } } });
+}

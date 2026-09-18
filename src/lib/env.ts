@@ -32,6 +32,8 @@ const EnvSchema = z.object({
   ANALYSIS_EFFORT: z.enum(["low", "medium", "high", "xhigh", "max"]).default("medium"),
   NEWS_SEARCH_MODEL: z.string().default("claude-sonnet-5"),
   NEWS_WEB_SEARCH_FALLBACK: boolFromString,
+  /** Cheap model for chat/copilot/portfolio/command-bar (grounded, short answers). */
+  ASSISTANT_MODEL: z.string().default("claude-haiku-4-5"),
 
   DATA_PROVIDER: z.enum(["yahoo", "fmp", "finnhub", "fixture"]).default("yahoo"),
   FMP_API_KEY: z.string().optional(),
@@ -64,7 +66,8 @@ const EnvSchema = z.object({
 
   // Public-app spend guardrails
   FREE_DAILY_FRESH_ANALYSES: intFromString(3), // per user per day; cached views unlimited
-  DAILY_SPEND_CEILING_USD: numFromString(15), // kill switch pauses fresh analyses past this
+  FREE_DAILY_CHAT_MESSAGES: intFromString(25), // per user per day: copilot + portfolio chat + command bar
+  DAILY_SPEND_CEILING_USD: numFromString(15), // kill switch pauses ALL paid AI calls past this
 
   APP_URL: z.string().default("http://localhost:3000"),
   DEMO_MODE: boolFromString,
