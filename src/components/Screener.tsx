@@ -10,8 +10,8 @@ import { money, multiple, pct } from "@/lib/format";
 
 type SortKey = "rating" | "fcfMarginPct" | "revenueGrowthPct" | "forwardPE" | "priceToFcf" | "marketCap";
 
-export function Screener({ rows, sectors, saved }: { rows: UniverseRow[]; sectors: string[]; saved: Array<{ id: string; name: string; filters: ScreenFilters }> }) {
-  const [f, setF] = useState<ScreenFilters>({});
+export function Screener({ rows, sectors, saved, initial }: { rows: UniverseRow[]; sectors: string[]; saved: Array<{ id: string; name: string; filters: ScreenFilters }>; initial?: ScreenFilters }) {
+  const [f, setF] = useState<ScreenFilters>(initial ?? {});
   const [sort, setSort] = useState<SortKey>("rating");
   const [dir, setDir] = useState<"asc" | "desc">("desc");
   const [screenName, setScreenName] = useState("");

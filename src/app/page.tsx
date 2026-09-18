@@ -4,7 +4,7 @@ import { env } from "@/lib/env";
 import { DEMO_TICKERS } from "@/lib/demo";
 import { listWatchlists } from "@/lib/watchlists";
 import { currentUser } from "@/auth";
-import { SearchBox } from "@/components/SearchBox";
+import { CommandBar } from "@/components/CommandBar";
 import { CreateWatchlist } from "@/components/WatchlistTools";
 import { ActionChip } from "@/components/ui";
 import { FCF_EMOJI } from "@/lib/analysis/schema";
@@ -34,7 +34,7 @@ export default async function Home() {
           Live data → the <code>stock-analysis</code> framework via Claude → rating, bull &amp; bear, catalysts, 12-month view. Every number carries its source and date. Unverifiable means unverified, never invented.
         </p>
         <div className="mt-5 max-w-2xl">
-          <SearchBox autoFocus />
+          <CommandBar autoFocus />
         </div>
         {!e.ANTHROPIC_API_KEY && !e.DEMO_MODE && <p className="mt-2 text-xs text-red">ANTHROPIC_API_KEY is not set — new analyses will fail until it is. Cached analyses still render.</p>}
       </section>
