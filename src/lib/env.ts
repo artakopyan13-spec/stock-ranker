@@ -77,7 +77,13 @@ let cached: Env | null = null;
 /** Parsed, typed environment. Never throws on missing optional secrets; callers check presence. */
 export function env(): Env {
   if (cached) return cached;
-  cached = EnvSchema.parse(process.env);
+  // Treat empty-string env vars as unset so schema defaults apply. Hosting UIs (e.g. Vercel)
+  // often add every known key with a blank value; z.enum().default() must not choke on "".
+  const raw: Record<string, string> = {};
+  for (const [k, v] of Object.entries(process.env)) {
+    if (typeof v === "string" && v !== "") raw[k] = v;
+  }
+  cached = EnvSchema.parse(raw);
   return cached;
 }
 
