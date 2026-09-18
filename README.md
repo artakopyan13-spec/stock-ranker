@@ -30,10 +30,19 @@ auto-refresh. Every fresh analysis is shared across all users and quota-gated, s
 | Not financial advice | Fixed disclaimer checked verbatim, on every page and at sign-in. |
 | Step 6 verification | [`verify.ts`](src/lib/analysis/verify.ts) runs before anything is stored, rendered, or served. |
 
+## Signature features (why it's more than a wrapper)
+
+- **Investment committee** — five AI seats (Research, Risk, Macro, Devil's Advocate, Capital Allocation) debate a ticker from the *verified* analysis and a chair rules a score + BUY/HOLD/SELL. Genuine disagreement, a live debate, one decision rule. Cached and shared like an analysis.
+- **AI track record** — every rating the app ever published, graded against today's price with **no model call**: priced calls, average return, a rating-vs-return scatter, the strong-minus-weak spread, and calibration by confidence. The app grades itself.
+- **Time machine** — scrub the AI's rating history over the 5-year price and see the forward return since each call.
+- **Ask this stock** — a grounded copilot that answers **only** from the analysis + financials on the page (with dates) and refuses to invent a number.
+- **Portfolio X-ray** — paste holdings for an honest construction review: real concentration (HHI), the bets that secretly move together, weak free-cash-flow exposure, a build-quality score — then chat about it, grounded in your own positions' verified ratings.
+- **Natural-language search** — one box: a ticker, "compare NVDA and AMD", or "cash machines under 20x FCF". Known tickers jump for free; everything else is parsed by a cheap model into a navigation. Every paid AI action shares the same spend ceiling + kill switch.
+
 ## Features (v1)
 
 - **Search & analysis** — streamed section-by-section; data-derived sections render instantly, model sections as they complete.
-- **Ticker tabs** — AI analysis · Financials (10yr IS/BS/CF, annual+quarterly) · Charts (price 1M–MAX, valuation history, revenue/FCF/margins/shares/debt-vs-cash) · Overview (description, key stats, ownership, insiders).
+- **Ticker tabs** — AI analysis · Committee · Ask this stock · Time machine · Financials (10yr IS/BS/CF, annual+quarterly) · Charts (price 1M–MAX, valuation history, revenue/FCF/margins/shares/debt-vs-cash) · Overview (description, key stats, ownership, insiders).
 - **Rankings** — per-user watchlists, sortable scoreboard, analyze-all, compare in place.
 - **Top Rated leaderboard** — highest rated / most searched, from the shared cache.
 - **Screener** — filter the cache universe by rating, FCF margin, growth, P/E, P/FCF, market cap, sector; presets; saved screens.
