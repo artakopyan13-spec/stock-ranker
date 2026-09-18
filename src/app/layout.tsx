@@ -31,9 +31,10 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
             <nav className="flex items-center gap-4 text-sm">
               <Link href="/" className="text-muted hover:text-text no-underline">Search</Link>
               <Link href="/leaderboard" className="text-muted hover:text-text no-underline">Top Rated</Link>
+              <Link href="/track-record" className="text-muted hover:text-text no-underline">Track record</Link>
               <Link href="/screener" className="text-muted hover:text-text no-underline">Screener</Link>
-              <Link href="/screener?view=map" className="text-muted hover:text-text no-underline">Map</Link>
               <Link href="/compare" className="text-muted hover:text-text no-underline">Compare</Link>
+              <Link href="/portfolio" className="text-muted hover:text-text no-underline">Portfolio</Link>
               <Link href="/calendar" className="text-muted hover:text-text no-underline">Calendar</Link>
               <Link href="/w" className="text-muted hover:text-text no-underline">Watchlists</Link>
               <Link href="/changes" className="text-muted hover:text-text no-underline">What changed</Link>

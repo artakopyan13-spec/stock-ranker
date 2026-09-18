@@ -4,7 +4,7 @@ import { clientIp } from "@/lib/request";
 import { rateLimit } from "@/lib/quota/ratelimit";
 import { env } from "@/lib/env";
 import { loadUniverse } from "@/lib/universe";
-import { gateAiAction } from "@/lib/quota/gate";
+import { AI_ACTION_KINDS, gateAiAction } from "@/lib/quota/gate";
 import { logUsage } from "@/lib/ai/client";
 import { heuristicIntent, intentToResult, llmIntent } from "@/lib/nl/parse";
 
@@ -31,7 +31,7 @@ export async function POST(req: Request): Promise<Response> {
   if (fast) return Response.json({ result: intentToResult(fast) });
 
   const user = await currentUser();
-  const gate = await gateAiAction({ userId: user?.id ?? null, ip, kinds: ["chat", "command"], dailyCap: env().FREE_DAILY_CHAT_MESSAGES });
+  const gate = await gateAiAction({ userId: user?.id ?? null, ip, kinds: AI_ACTION_KINDS, dailyCap: env().FREE_DAILY_CHAT_MESSAGES });
   if (!gate.allow) {
     const reply = user ? gate.message : "Sign in to use natural-language search — or type a ticker like AAPL, or “compare NVDA and AMD”.";
     return Response.json({ result: { action: "answer", reply } });

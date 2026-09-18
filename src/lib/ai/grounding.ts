@@ -81,7 +81,8 @@ Rules:
 - If the user asks for a number or fact that is not in FACTS, say you don't have that figure and point them to the tab that would show it (Financials, News, Overview) — do not guess.
 - Every figure in FACTS carries an "asOf" date; mention the date when a number could be stale.
 - Be concise (a few sentences, or short bullets). Use the currency shown. Round sensibly.
-- The rating, forecast and thesis are the model's judgment, not fact. Never tell the user to buy or sell, and never give personalized investment advice — explain the reasoning and the risks instead, and remind them this is research, not financial advice, when they ask what to do.`;
+- The rating, forecast and thesis are the model's judgment, not fact. Never tell the user to buy or sell, and never give personalized investment advice — explain the reasoning and the risks instead, and remind them this is research, not financial advice, when they ask what to do.
+- Reply in plain prose. Use short paragraphs and, at most, simple "- " bullets. Do NOT use markdown headings (#), bold (**), or tables.`;
 
 /** Builds the grounded system prompt for the per-ticker copilot from cached analysis + company data. */
 export async function tickerContext(symbol: string): Promise<TickerContext> {
@@ -124,7 +125,7 @@ Rules:
 - Be honest and specific — name concentration, correlated bets, weak free-cash-flow names, and gaps. This is the point of the tool.
 - Where a holding has no AI rating in FACTS, say it hasn't been analyzed yet and suggest analyzing it.
 - Never tell the user to buy or sell a specific security and never give personalized investment advice; explain trade-offs, risks and what to watch, and remind them this is research, not financial advice.
-- Keep answers concise and skimmable. Amounts are in USD.
+- Keep answers concise and skimmable. Amounts are in USD. Reply in plain prose with at most simple "- " bullets — no markdown headings, bold, or tables.
 
 FACTS:
 ${JSON.stringify(facts, null, 1)}`;

@@ -10,14 +10,18 @@ export async function spendToday(now = new Date()): Promise<number> {
   return rows._sum.usd ?? 0;
 }
 
-/** Fresh + batch analyses run since UTC midnight (global cap counter). */
+/** Kinds that consume a "fresh analysis" credit — real analyses and committee debates. */
+const FRESH_KINDS = ["analysis", "batch_analysis", "committee"];
+const USER_FRESH_KINDS = ["analysis", "committee"];
+
+/** Fresh + batch analyses + committees run since UTC midnight (global cap counter). */
 export async function analysesToday(now = new Date()): Promise<number> {
-  return db().usageLog.count({ where: { kind: { in: ["analysis", "batch_analysis"] }, createdAt: { gte: startOfUtcDay(now) } } });
+  return db().usageLog.count({ where: { kind: { in: FRESH_KINDS }, createdAt: { gte: startOfUtcDay(now) } } });
 }
 
-/** Fresh analyses a specific user triggered today (per-user quota counter). */
+/** Fresh analyses + committees a specific user triggered today (per-user quota counter). */
 export async function userAnalysesToday(userId: string, now = new Date()): Promise<number> {
-  return db().usageLog.count({ where: { kind: "analysis", userId, createdAt: { gte: startOfUtcDay(now) } } });
+  return db().usageLog.count({ where: { kind: { in: USER_FRESH_KINDS }, userId, createdAt: { gte: startOfUtcDay(now) } } });
 }
 
 /** How many calls of the given kind(s) a user made today — powers the per-kind daily caps (chat, command). */

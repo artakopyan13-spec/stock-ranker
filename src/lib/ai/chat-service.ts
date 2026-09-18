@@ -2,7 +2,7 @@ import { db } from "@/lib/db";
 import { env } from "@/lib/env";
 import { streamAssistant, type ChatTurn } from "@/lib/ai/assistant";
 import { logUsage } from "@/lib/ai/client";
-import { gateAiAction } from "@/lib/quota/gate";
+import { AI_ACTION_KINDS, gateAiAction } from "@/lib/quota/gate";
 import type { DenyReason } from "@/lib/quota/gate";
 
 export const CHAT_KIND = "chat";
@@ -42,7 +42,7 @@ export async function runChatTurn(args: {
   const gate = await gateAiAction({
     userId: args.userId,
     ip: args.ip,
-    kinds: [CHAT_KIND],
+    kinds: AI_ACTION_KINDS,
     dailyCap: env().FREE_DAILY_CHAT_MESSAGES,
   });
   if (!gate.allow) {

@@ -6,6 +6,9 @@ import { rateLimit } from "@/lib/quota/ratelimit";
 
 export type DenyReason = "login_required" | "banned" | "rate_limit" | "kill_switch" | "global_cap" | "user_quota" | "no_key";
 
+/** Lightweight AI actions that draw from one shared per-user daily allowance (copilot, portfolio, command bar). */
+export const AI_ACTION_KINDS = ["chat", "portfolio", "command"];
+
 export type GateResult =
   | { allow: true; userId: string; remainingToday: number }
   | { allow: false; reason: DenyReason; message: string; retryAfterSec?: number };
