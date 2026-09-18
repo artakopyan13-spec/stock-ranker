@@ -72,13 +72,27 @@ export function intentToResult(intent: Intent): CommandResult {
   return { action: "answer", reply: intent.reply ?? "I couldn't turn that into a search. Try a ticker (AAPL), a comparison (compare NVDA and AMD), or a screen (cash machines under 20x FCF)." };
 }
 
-/** Zero-cost fast path: bare/`$`-prefixed known tickers → analyze/compare without any model call. */
+const TICKER_SHAPE = /^[A-Z][A-Z0-9.\-]{0,5}$/;
+
+/**
+ * Zero-cost fast path (no model call): a bare/`$`-prefixed ticker jumps to analyze/compare.
+ * A token counts as a ticker if it's already in the universe, OR the user signalled it's a symbol
+ * by writing it uppercase or with `$` and it has ticker shape (so lowercase words don't false-trigger).
+ */
 export function heuristicIntent(input: string, universe: Set<string>): Intent | null {
   const cleaned = input.trim().replace(/[,\s]+/g, " ");
-  const tokens = cleaned.split(" ").map((t) => t.replace(/^\$/, "").toUpperCase()).filter(Boolean);
-  if (tokens.length === 0 || tokens.length > 5) return null;
-  const known = tokens.filter((t) => universe.has(t) || (input.includes("$") && isValidSymbol(t)));
-  if (known.length !== tokens.length) return null; // every token must be a ticker
+  const rawTokens = cleaned.split(" ").filter(Boolean);
+  if (rawTokens.length === 0 || rawTokens.length > 5) return null;
+  const tickerLike = (raw: string): string | null => {
+    const looksIntentional = raw.startsWith("$") || raw === raw.toUpperCase();
+    const sym = raw.replace(/^\$/, "").toUpperCase();
+    if (universe.has(sym)) return sym;
+    if (looksIntentional && TICKER_SHAPE.test(sym) && isValidSymbol(sym)) return sym;
+    return null;
+  };
+  const syms = rawTokens.map(tickerLike);
+  if (syms.some((s) => s === null)) return null; // every token must resolve to a ticker
+  const known = syms as string[];
   if (known.length === 1) return { kind: "analyze", ticker: known[0], tickers: [], filters: null, reply: null };
   return { kind: "compare", ticker: null, tickers: known, filters: null, reply: null };
 }
