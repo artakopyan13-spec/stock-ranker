@@ -1,5 +1,6 @@
 import type { Analysis } from "@/lib/analysis/schema";
 import type { CompanyData } from "@/lib/data/company";
+import type { StockData } from "@/lib/data/types";
 import { compact, money, multiple, pct } from "@/lib/format";
 
 export type Flag = "good" | "warn" | "bad" | "none";
@@ -27,14 +28,17 @@ export interface PositionNumbers {
   symbol: string;
   price: number | null;
   currency: string;
+  sector: string | null;
   fcfIcon: "✅" | "⚠️" | "❌" | "—";
   fcfTtm: number | null;
   fcfMarginPct: number | null;
   range52: [number, number] | null;
+  nextEarnings: string | null;
   kgroups: KpiGroup[];
   trends: Trend[];
   history: Trend[]; // annual, one bar per fiscal year
   hasAnalysis: boolean;
+  hasLiveData: boolean;
 }
 
 const q = (p: string) => {
@@ -62,41 +66,58 @@ function flagNetCash(v: number | null): Flag {
   return v >= 0 ? "good" : "warn";
 }
 
-/** Builds the full KPI groups + quarterly trends for a position (FCF-first, debt never optional). */
-export function positionNumbers(symbol: string, company: CompanyData | null, analysis: Analysis | null): PositionNumbers {
-  const cur = company?.currency ?? analysis?.meta.currency ?? "USD";
-  const price = analysis?.price.current.value ?? null;
+/**
+ * Builds the full KPI groups + quarterly trends for a position (FCF-first, debt never optional).
+ * `stock` is LIVE data (getStockData) — the primary source per the skill's "live data first" rule;
+ * `company` supplies longer history; `analysis` adds the AI rating/thesis when one exists.
+ */
+export function positionNumbers(symbol: string, stock: StockData | null, company: CompanyData | null, analysis: Analysis | null): PositionNumbers {
+  const cur = stock?.currency ?? company?.currency ?? analysis?.meta.currency ?? "USD";
+  const price = stock?.quote.price.value ?? analysis?.price.current.value ?? null;
   const ks = company?.overview.keyStats;
   const latest = company && company.annual.length ? company.annual[company.annual.length - 1] : null;
 
-  const fcfTtm = analysis?.fcf.ttm.value ?? latest?.fcf ?? null;
-  const fcfMargin = analysis?.fcf.marginPct.value ?? marginOf(latest?.fcf, latest?.revenue);
-  const netCash = analysis?.balanceSheet.netCash ?? (latest && latest.cash !== null && latest.totalDebt !== null ? latest.cash - latest.totalDebt : null);
+  // Prefer live StockData; fall back to the cached analysis, then to company financials.
+  const v = stock?.valuation;
+  const f = stock?.fundamentals;
+  const fwdPe = v?.forwardPE.value ?? analysis?.valuation.forwardPE.value ?? null;
+  const fcfTtm = f?.fcfTTM.value ?? analysis?.fcf.ttm.value ?? latest?.fcf ?? null;
+  const revTtm = f?.revenueTTM.value ?? analysis?.growth.revenueTTM.value ?? latest?.revenue ?? null;
+  const fcfMargin = analysis?.fcf.marginPct.value ?? marginOf(fcfTtm, revTtm);
+  const cash = f?.cash.value ?? analysis?.balanceSheet.cash.value ?? latest?.cash ?? null;
+  const totalDebt = f?.totalDebt.value ?? analysis?.balanceSheet.totalDebt.value ?? latest?.totalDebt ?? null;
+  const netCash = cash !== null && totalDebt !== null ? cash - totalDebt : analysis?.balanceSheet.netCash ?? null;
+  const mktCap = stock?.quote.marketCap.value ?? analysis?.price.marketCap.value ?? ks?.marketCap ?? null;
+  const low = stock?.quote.week52Low.value ?? analysis?.price.week52Low.value ?? null;
+  const high = stock?.quote.week52High.value ?? analysis?.price.week52High.value ?? null;
+  const revGrowth = f?.revenueGrowthYoYPct.value ?? analysis?.growth.revenueGrowthYoYLatestQ.value ?? null;
+  const grossM = f?.grossMarginPct.value ?? analysis?.growth.grossMarginPct.value ?? marginOf(latest?.grossProfit, latest?.revenue);
+  const opM = f?.operatingMarginPct.value ?? analysis?.growth.operatingMarginPct.value ?? marginOf(latest?.operatingIncome, latest?.revenue);
 
   const valuation: Kpi[] = [
-    { label: "Fwd P/E", info: "forward-pe", value: multiple(analysis?.valuation.forwardPE.value ?? null), flag: flagFwdPe(analysis?.valuation.forwardPE.value ?? null) },
-    { label: "Trailing P/E", info: "pe", value: multiple(analysis?.valuation.trailingPE.value ?? null), flag: "none" },
-    { label: "P/FCF", info: "pfcf", value: multiple(analysis?.valuation.priceToFcf.value ?? null), flag: "none" },
-    { label: "EV/EBITDA", value: multiple(analysis?.valuation.evToEbitda.value ?? null), flag: "none" },
-    { label: "P/S", value: multiple(analysis?.valuation.priceToSales.value ?? null), flag: "none" },
-    { label: "P/B", value: multiple(analysis?.valuation.priceToBook.value ?? null), flag: "none" },
+    { label: "Fwd P/E", info: "forward-pe", value: multiple(fwdPe), flag: flagFwdPe(fwdPe) },
+    { label: "Trailing P/E", info: "pe", value: multiple(v?.trailingPE.value ?? analysis?.valuation.trailingPE.value ?? null), flag: "none" },
+    { label: "P/FCF", info: "pfcf", value: multiple(v?.priceToFcf.value ?? analysis?.valuation.priceToFcf.value ?? null), flag: "none" },
+    { label: "EV/EBITDA", value: multiple(v?.evToEbitda.value ?? analysis?.valuation.evToEbitda.value ?? null), flag: "none" },
+    { label: "P/S", value: multiple(v?.priceToSales.value ?? analysis?.valuation.priceToSales.value ?? null), flag: "none" },
+    { label: "P/B", value: multiple(v?.priceToBook.value ?? analysis?.valuation.priceToBook.value ?? null), flag: "none" },
   ];
   const growth: Kpi[] = [
-    { label: "Rev TTM", value: analysis ? `${money(analysis.growth.revenueTTM.value, cur)} · ${pct(analysis.growth.revenueGrowthYoYLatestQ.value, 1, true)}` : money(latest?.revenue ?? null, cur), flag: "none" },
-    { label: "Gross margin", info: "gross-margin", value: pct(analysis?.growth.grossMarginPct.value ?? marginOf(latest?.grossProfit, latest?.revenue)), flag: "none" },
-    { label: "Operating margin", info: "operating-margin", value: pct(analysis?.growth.operatingMarginPct.value ?? marginOf(latest?.operatingIncome, latest?.revenue)), flag: "none" },
+    { label: "Rev TTM", value: revTtm !== null ? `${money(revTtm, cur)} · ${pct(revGrowth, 1, true)}` : "—", flag: "none" },
+    { label: "Gross margin", info: "gross-margin", value: pct(grossM), flag: "none" },
+    { label: "Operating margin", info: "operating-margin", value: pct(opM), flag: "none" },
     { label: "FCF margin", info: "fcf-margin", value: pct(fcfMargin), flag: flagFcfMargin(fcfMargin) },
   ];
   const balance: Kpi[] = [
-    { label: "Cash", value: money(analysis?.balanceSheet.cash.value ?? latest?.cash ?? null, cur), flag: "none" },
-    { label: "Total debt", value: money(analysis?.balanceSheet.totalDebt.value ?? latest?.totalDebt ?? null, cur), flag: "none" },
-    { label: "Net cash/debt", value: netCash === null ? "—" : money(netCash, cur), flag: flagNetCash(netCash) },
-    { label: "Posture", value: analysis?.balanceSheet.posture ?? (netCash === null ? "—" : netCash >= 0 ? "net_cash" : "net_debt"), flag: "none" },
+    { label: "Cash", value: money(cash, cur), flag: "none" },
+    { label: "Total debt", value: money(totalDebt, cur), flag: "none" },
+    { label: "Net cash/debt", info: "net-cash", value: netCash === null ? "—" : money(netCash, cur), flag: flagNetCash(netCash) },
+    { label: "Buybacks TTM", value: money(f?.buybacksTTM.value ?? analysis?.balanceSheet.buybacksTTM.value ?? null, cur), flag: "none" },
   ];
   const market: Kpi[] = [
-    { label: "Mkt cap", info: "market-cap", value: money(analysis?.price.marketCap.value ?? ks?.marketCap ?? null, cur), flag: "none" },
-    { label: "52-wk range", value: analysis && analysis.price.week52Low.value !== null && analysis.price.week52High.value !== null ? `${compact(analysis.price.week52Low.value)} – ${compact(analysis.price.week52High.value)}` : "—", flag: "none" },
-    { label: "Beta", value: ks?.beta != null ? ks.beta.toFixed(2) : "—", flag: "none" },
+    { label: "Mkt cap", info: "market-cap", value: money(mktCap, cur), flag: "none" },
+    { label: "52-wk range", value: low !== null && high !== null ? `${compact(low)} – ${compact(high)}` : "—", flag: "none" },
+    { label: "Beta", info: "beta", value: ks?.beta != null ? ks.beta.toFixed(2) : "—", flag: "none" },
     { label: "Dividend yield", info: "dividend-yield", value: pct(ks?.dividendYieldPct ?? null), flag: "none" },
   ];
 
@@ -108,7 +129,7 @@ export function positionNumbers(symbol: string, company: CompanyData | null, ana
   ];
 
   const trends: Trend[] = [];
-  const quarters = company?.quarterly ?? [];
+  const quarters = company && company.quarterly.length >= 2 ? company.quarterly : [];
   if (quarters.length >= 2) {
     const recent = quarters.slice(-8);
     const periods = recent.map((r) => q(r.period));
@@ -139,20 +160,24 @@ export function positionNumbers(symbol: string, company: CompanyData | null, ana
     if (afcf.some((v) => v !== null)) history.push({ label: "Free cash flow", unit: cur, periods, values: afcf, yoy: [], note: "annual" });
   }
 
-  const low = analysis?.price.week52Low.value ?? null;
-  const high = analysis?.price.week52High.value ?? null;
+  // FCF verdict: prefer the analysis's; otherwise derive from the live margin.
+  const derivedIcon: "✅" | "⚠️" | "❌" | "—" =
+    fcfTtm !== null && fcfTtm < 0 ? "❌" : fcfMargin !== null ? (fcfMargin >= 15 ? "✅" : fcfMargin >= 2 ? "⚠️" : "❌") : fcfTtm !== null ? (fcfTtm > 0 ? "✅" : "❌") : "—";
 
   return {
     symbol,
     price,
     currency: cur,
-    fcfIcon: analysis ? FCF_ICON[analysis.fcf.verdict] : fcfTtm !== null ? (fcfTtm > 0 ? "✅" : "❌") : "—",
+    sector: stock?.sector ?? company?.overview.sector ?? analysis?.meta.sector ?? null,
+    fcfIcon: analysis ? FCF_ICON[analysis.fcf.verdict] : derivedIcon,
     fcfTtm,
     fcfMarginPct: fcfMargin,
     range52: low !== null && high !== null && high > low ? [low, high] : null,
+    nextEarnings: stock?.nextEarningsDate ?? null,
     kgroups,
     trends,
     history,
     hasAnalysis: Boolean(analysis),
+    hasLiveData: Boolean(stock),
   };
 }

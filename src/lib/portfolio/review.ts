@@ -4,6 +4,7 @@ import { runAssistantJsonLoose } from "@/lib/ai/assistant";
 import { logUsage } from "@/lib/ai/client";
 import { Analysis } from "@/lib/analysis/schema";
 import { getCompanyData } from "@/lib/data/company-source";
+import { getStockData } from "@/lib/data";
 import { loadUniverse } from "@/lib/universe";
 import { enrich, getPortfolioRow } from "@/lib/portfolio/store";
 import { positionNumbers } from "@/lib/portfolio/kpis";
@@ -16,6 +17,7 @@ Follow these rules (from the portfolio-review method):
 - HONESTY OVER HYPE. Lead with the uncomfortable truth. Say who actually made the money, name the bear case as loudly as the bull, flag cyclicals on peak earnings, never soften a concentration problem. Being down on a good business isn't a reason to sell; being up on a stretched one isn't a reason to add.
 - MECHANICAL. Prefer rules with numbers (size caps, FCF gate, price levels, dates) over vibes.
 - FRAMEWORK, NOT ADVICE. Ratings, 12-month ranges, allocations and sell/trim calls are your estimates. Never promise outcomes; never give personalized advice — frame as observations and rules.
+If positionSizesProvided is false, the user gave tickers (maybe shares) but not dollar sizes — do NOT invent weights or a "who made the money" claim; judge each stock on quality and give the plan/ideas generally. If averageCostsProvided is false, there's no cost basis — skip gain figures and tax notes. Work with whatever the user gave; shares and average cost are optional.
 Sections you must produce (see the schema):
 - headline (one-line uncomfortable truth), thesis (2-3 sentences), score 1-10 (construction quality), honestRead (who made money, what's underwater, the concentration fact with numbers).
 - themes: 1-2 scoreboard tiles for the dominant factor(s) with % of portfolio.
@@ -68,16 +70,19 @@ function summarizePositions(cards: ReviewCard[], enriched: Awaited<ReturnType<ty
       name: h.name,
       shares: h.shares,
       avgCost: h.avgCost,
-      price: h.price,
+      price: n?.price ?? h.price,
       valueUsd: h.valueUsd,
       weightPct: h.weightPct === null ? null : Math.round(h.weightPct * 10) / 10,
       gainPct: h.gainPct === null ? null : Math.round(h.gainPct * 10) / 10,
-      sector: h.sector,
+      sector: n?.sector ?? h.sector,
       rating: h.rating,
       action: h.action,
+      nextEarnings: n?.nextEarnings ?? null,
+      range52: n?.range52 ?? null,
       fcf: n ? { icon: n.fcfIcon, ttm: n.fcfTtm, marginPct: n.fcfMarginPct } : null,
       kpis: n ? n.kgroups.map((g) => ({ name: g.name, items: g.items.map((i) => [i.label, i.value]) })) : null,
       hasAnalysis: n?.hasAnalysis ?? false,
+      liveData: n?.hasLiveData ?? false,
     };
   });
 }
@@ -113,10 +118,14 @@ export async function generateReview(userId: string): Promise<PortfolioReviewV2>
   if (holdings.length === 0) throw new Error("Add at least one holding before requesting a review.");
 
   const symbols = holdings.map((h) => h.symbol);
-  const [companies, analysisRows] = await Promise.all([
+  // Live data FIRST for every holding (skill hard rule #1) — quote, valuation, FCF, 52-wk range,
+  // next earnings — plus company history and any cached AI analysis.
+  const [stocks, companies, analysisRows] = await Promise.all([
+    Promise.all(symbols.map((s) => getStockData(s).then((r) => r.data).catch(() => null))),
     Promise.all(symbols.map((s) => getCompanyData(s).catch(() => null))),
     db().analysis.findMany({ where: { symbol: { in: symbols }, verified: true }, orderBy: { version: "desc" } }),
   ]);
+  const stockBy = new Map(symbols.map((s, i) => [s, stocks[i]]));
   const companyBy = new Map(symbols.map((s, i) => [s, companies[i]]));
   const analysisBy = new Map<string, Analysis>();
   for (const a of analysisRows) {
@@ -127,14 +136,18 @@ export async function generateReview(userId: string): Promise<PortfolioReviewV2>
       /* skip */
     }
   }
-  const cards: ReviewCard[] = holdings.map((h) => ({ numbers: positionNumbers(h.symbol, companyBy.get(h.symbol) ?? null, analysisBy.get(h.symbol) ?? null), j: null }));
+  const cards: ReviewCard[] = holdings.map((h) => ({ numbers: positionNumbers(h.symbol, stockBy.get(h.symbol) ?? null, companyBy.get(h.symbol) ?? null, analysisBy.get(h.symbol) ?? null), j: null }));
 
-  const heldSectors = new Set(holdings.map((h) => h.sector).filter((s): s is string => Boolean(s)));
+  const heldSectors = new Set(cards.map((c) => c.numbers.sector).filter((s): s is string => Boolean(s)));
   const ideas = await ideaCandidates(heldSectors);
 
   const activity = row.alltime ? (JSON.parse(row.alltime) as ReturnType<typeof parseActivityCsv>) : null;
+  const sizesProvided = holdings.some((h) => h.valueUsd !== null && h.valueUsd > 0);
+  const costsProvided = holdings.some((h) => h.avgCost !== null);
   const facts = {
     today: new Date().toISOString().slice(0, 10),
+    positionSizesProvided: sizesProvided, // if false, the user gave tickers only — judge quality, don't fabricate weights
+    averageCostsProvided: costsProvided, // if false, no cost basis — skip gains and tax notes
     totalValueUsd: metrics.totalValueUsd,
     cashUsd: row.cashUsd,
     newCashUsd: row.newCashUsd,
