@@ -8,6 +8,9 @@ import { currentUser } from "@/auth";
 import { doSignOut } from "@/lib/auth-actions";
 import { CookieNotice } from "@/components/CookieNotice";
 import { QuotaBadge } from "@/components/QuotaBadge";
+import { ThemeToggle } from "@/components/ThemeToggle";
+
+const THEME_INIT = `(function(){try{var t=localStorage.getItem('theme');if(t==='light'||t==='dark'){document.documentElement.dataset.theme=t;}}catch(e){}})();`;
 
 const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
 const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"] });
@@ -21,8 +24,9 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
   const demo = env().DEMO_MODE;
   const user = await currentUser();
   return (
-    <html lang="en" className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}>
+    <html lang="en" className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`} suppressHydrationWarning>
       <body className="min-h-full flex flex-col">
+        <script dangerouslySetInnerHTML={{ __html: THEME_INIT }} />
         <header className="border-b border-line sticky top-0 z-40 bg-bg/90 backdrop-blur">
           <div className="mx-auto max-w-6xl px-4 py-3 flex items-center gap-4 flex-wrap">
             <Link href="/" className="font-semibold text-text no-underline tracking-tight">
@@ -43,6 +47,7 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
               {user?.role === "admin" && <Link href="/admin" className="text-gold hover:text-text no-underline">Admin</Link>}
             </nav>
             <div className="ml-auto flex items-center gap-3 text-sm">
+              <ThemeToggle />
               {user ? (
                 <>
                   {!demo && <QuotaBadge />}

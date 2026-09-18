@@ -23,6 +23,16 @@ export default async function Home() {
   const latestBySymbol = new Map<string, (typeof recent)[number]>();
   for (const r of recent) if (!latestBySymbol.has(r.symbol)) latestBySymbol.set(r.symbol, r);
   const tiles = e.DEMO_MODE ? [...latestBySymbol.values()].filter((r) => r.ticker.isDemo) : [...latestBySymbol.values()].slice(0, 12);
+  const featured = tiles[0]?.symbol ?? "NVDA";
+
+  const tools = [
+    { icon: "🧠", title: "Investment committee", desc: "Five AI analysts debate a stock, then a chair rules a verdict.", href: `/t/${featured}?tab=committee`, tone: "hover:border-purple" },
+    { icon: "💬", title: "Ask this stock", desc: "Chat with any stock — grounded in its verified analysis.", href: `/t/${featured}?tab=copilot`, tone: "hover:border-purple" },
+    { icon: "⏱️", title: "Time machine", desc: "Scrub the AI's rating history over the price chart.", href: `/t/${featured}?tab=timemachine`, tone: "hover:border-gold" },
+    { icon: "📊", title: "Track record", desc: "How right the AI has actually been, graded vs. price.", href: "/track-record", tone: "hover:border-green" },
+    { icon: "🩺", title: "Portfolio X-ray", desc: "Paste your holdings for an honest review + chat.", href: "/portfolio", tone: "hover:border-purple" },
+    { icon: "🔎", title: "Screener", desc: "Filter the universe by rating, FCF, growth, value.", href: "/screener", tone: "hover:border-gold" },
+  ];
 
   return (
     <div className="space-y-8">
@@ -37,6 +47,22 @@ export default async function Home() {
           <CommandBar autoFocus />
         </div>
         {!e.ANTHROPIC_API_KEY && !e.DEMO_MODE && <p className="mt-2 text-xs text-red">ANTHROPIC_API_KEY is not set — new analyses will fail until it is. Cached analyses still render.</p>}
+      </section>
+
+      <section>
+        <h2 className="text-sm font-semibold uppercase tracking-wider text-muted mb-3">Explore the tools</h2>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          {tools.map((t) => (
+            <Link key={t.title} href={t.href} className={`card p-4 no-underline text-text transition-colors ${t.tone}`}>
+              <div className="flex items-center gap-2">
+                <span className="text-xl" aria-hidden>{t.icon}</span>
+                <span className="font-semibold">{t.title}</span>
+              </div>
+              <p className="text-sm text-muted mt-1.5 leading-snug">{t.desc}</p>
+            </Link>
+          ))}
+        </div>
+        <p className="text-xs text-dim mt-2">Committee, Ask this stock and Time machine are tabs on every stock&rsquo;s page — the cards above open them on {featured}.</p>
       </section>
 
       <section>

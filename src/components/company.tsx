@@ -295,8 +295,10 @@ export function Overview({ data }: { data: CompanyData }) {
 type TabId = "analysis" | "committee" | "copilot" | "timemachine" | "financials" | "charts" | "overview";
 const DATA_TABS: TabId[] = ["financials", "charts", "overview"];
 
-export function CompanyTabs({ symbol, analysis, signedIn = false }: { symbol: string; analysis: React.ReactNode; signedIn?: boolean }) {
-  const [tab, setTab] = useState<TabId>("analysis");
+const TAB_IDS: TabId[] = ["analysis", "committee", "copilot", "timemachine", "financials", "charts", "overview"];
+
+export function CompanyTabs({ symbol, analysis, signedIn = false, initialTab }: { symbol: string; analysis: React.ReactNode; signedIn?: boolean; initialTab?: string }) {
+  const [tab, setTab] = useState<TabId>(TAB_IDS.includes(initialTab as TabId) ? (initialTab as TabId) : "analysis");
   const [data, setData] = useState<CompanyData | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);

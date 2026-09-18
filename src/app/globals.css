@@ -1,6 +1,6 @@
 @import "tailwindcss";
 
-/* Palette from stock-analysis/references/html_style_guide.md */
+/* Dark palette (default) — from stock-analysis/references/html_style_guide.md */
 :root {
   --bg: #0e1116;
   --card: #161b22;
@@ -17,6 +17,57 @@
   --red-bg: rgba(176, 122, 110, 0.16);
   --gold-bg: rgba(201, 163, 92, 0.14);
   --purple-bg: rgba(142, 134, 216, 0.14);
+  --pop: #0b0e13; /* popovers / tooltips */
+  --input-bg: #0b0e13;
+  --skeleton-mid: #232a35;
+  --on-gold: #0e1116; /* text on a gold button */
+}
+
+/* Light palette — warm editorial, keeps the gold accent.
+   Applied when the user forces light, or the OS is light and they haven't forced dark. */
+:root[data-theme="light"] {
+  --bg: #f7f6f2;
+  --card: #ffffff;
+  --card-2: #efece4;
+  --line: #e2ded4;
+  --text: #1b1f24;
+  --muted: #5b6570;
+  --dim: #929aa5;
+  --green: #3f7d54;
+  --red: #a8503b;
+  --gold: #9a6f18;
+  --purple: #5a4fce;
+  --green-bg: rgba(63, 125, 84, 0.12);
+  --red-bg: rgba(168, 80, 59, 0.12);
+  --gold-bg: rgba(154, 111, 24, 0.14);
+  --purple-bg: rgba(90, 79, 206, 0.12);
+  --pop: #ffffff;
+  --input-bg: #ffffff;
+  --skeleton-mid: #e6e2d9;
+  --on-gold: #ffffff;
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    --bg: #f7f6f2;
+    --card: #ffffff;
+    --card-2: #efece4;
+    --line: #e2ded4;
+    --text: #1b1f24;
+    --muted: #5b6570;
+    --dim: #929aa5;
+    --green: #3f7d54;
+    --red: #a8503b;
+    --gold: #9a6f18;
+    --purple: #5a4fce;
+    --green-bg: rgba(63, 125, 84, 0.12);
+    --red-bg: rgba(168, 80, 59, 0.12);
+    --gold-bg: rgba(154, 111, 24, 0.14);
+    --purple-bg: rgba(90, 79, 206, 0.12);
+    --pop: #ffffff;
+    --input-bg: #ffffff;
+    --skeleton-mid: #e6e2d9;
+    --on-gold: #ffffff;
+  }
 }
 
 @theme inline {
@@ -37,6 +88,14 @@
 
 html {
   color-scheme: dark;
+}
+:root[data-theme="light"] {
+  color-scheme: light;
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    color-scheme: light;
+  }
 }
 
 body {
@@ -129,7 +188,7 @@ a {
   z-index: 20;
   min-width: 220px;
   max-width: 320px;
-  background: #0b0e13;
+  background: var(--pop);
   border: 1px solid var(--line);
   border-radius: 8px;
   padding: 0.5rem 0.65rem;
@@ -199,7 +258,7 @@ a {
 }
 .skeleton {
   border-radius: 8px;
-  background: linear-gradient(90deg, var(--card-2) 25%, #232a35 37%, var(--card-2) 63%);
+  background: linear-gradient(90deg, var(--card-2) 25%, var(--skeleton-mid) 37%, var(--card-2) 63%);
   background-size: 800px 100%;
   animation: shimmer 1.4s linear infinite;
 }
@@ -232,7 +291,7 @@ a {
 input,
 textarea,
 select {
-  background: #0b0e13;
+  background: var(--input-bg);
   border: 1px solid var(--line);
   color: var(--text);
   border-radius: 10px;
@@ -267,7 +326,7 @@ textarea:focus {
 .btn-primary {
   background: var(--gold);
   border-color: var(--gold);
-  color: #0e1116;
+  color: var(--on-gold);
 }
 .btn-ghost {
   background: transparent;
