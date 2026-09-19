@@ -44,6 +44,7 @@ export function PortfolioWorkspace({ initial, signedIn }: { initial: PortfolioPa
   const [saving, setSaving] = useState(false);
   const [reviewing, setReviewing] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [dragging, setDragging] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -138,13 +139,23 @@ export function PortfolioWorkspace({ initial, signedIn }: { initial: PortfolioPa
         <div className="card p-4 space-y-3">
           <div className="text-sm font-semibold">{hasHoldings ? "Edit / add holdings" : "Add your holdings"}</div>
 
-          <div className="flex flex-wrap items-center gap-2">
-            <input ref={fileRef} type="file" accept="image/*,application/pdf,.csv,text/csv" className="hidden" onChange={(e) => e.target.files?.[0] && onFile(e.target.files[0])} />
-            <button type="button" className="btn" disabled={uploading} onClick={() => fileRef.current?.click()}>{uploading ? "Reading…" : "📎 Upload statement or CSV"}</button>
-            <span className="text-xs text-dim">Screenshot / PDF of your holdings, or a brokerage activity CSV (unlocks the all-time scorecard).</span>
+          <input ref={fileRef} type="file" accept="image/*,application/pdf,.csv,text/csv" className="hidden" onChange={(e) => e.target.files?.[0] && onFile(e.target.files[0])} />
+          <div
+            role="button"
+            tabIndex={0}
+            onClick={() => !uploading && fileRef.current?.click()}
+            onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && !uploading && fileRef.current?.click()}
+            onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
+            onDragLeave={() => setDragging(false)}
+            onDrop={(e) => { e.preventDefault(); setDragging(false); const f = e.dataTransfer.files?.[0]; if (f) void onFile(f); }}
+            className={`w-full border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-colors ${dragging ? "border-purple bg-purple/5" : "border-line hover:border-purple"}`}
+          >
+            <div className="text-3xl">📎</div>
+            <div className="text-sm font-semibold mt-1">{uploading ? "Reading your file…" : "Upload a statement or CSV"}</div>
+            <div className="text-xs text-dim mt-1 max-w-md mx-auto">Click or drag in a screenshot / PDF of your holdings, or a brokerage activity CSV (the CSV also unlocks the all-time scorecard).</div>
           </div>
 
-          <div className="text-xs text-dim">— or paste —</div>
+          <div className="text-xs text-dim text-center">— or paste your holdings below —</div>
           <textarea value={text} onChange={(e) => setText(e.target.value)} placeholder={PLACEHOLDER} rows={5} className="w-full text-sm font-mono" />
           <div className="grid sm:grid-cols-3 gap-3">
             <label className="text-xs text-muted">Cash (USD)
