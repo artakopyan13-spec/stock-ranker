@@ -25,6 +25,14 @@ function diversificationLabel(hhi: number | null): { label: string; tone: string
   if (hhi < 0.25) return { label: "Moderate", tone: "text-gold" };
   return { label: "Concentrated", tone: "text-red" };
 }
+const REVIEW_STAGES = [
+  "Pulling live prices & fundamentals for each holding…",
+  "Checking free cash flow, valuation and debt…",
+  "Scanning for concentration, correlated bets and gaps…",
+  "Setting buy/sell zones and the sell·trim·hold calls…",
+  "Writing your review — almost there…",
+];
+
 function readAsBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -45,6 +53,7 @@ export function PortfolioWorkspace({ initial, signedIn }: { initial: PortfolioPa
   const [reviewing, setReviewing] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [dragging, setDragging] = useState(false);
+  const [reviewStage, setReviewStage] = useState(0);
   const [notice, setNotice] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -115,7 +124,9 @@ export function PortfolioWorkspace({ initial, signedIn }: { initial: PortfolioPa
 
   async function runReview() {
     setReviewing(true);
+    setReviewStage(0);
     setNotice(null);
+    const timer = setInterval(() => setReviewStage((s) => Math.min(s + 1, REVIEW_STAGES.length - 1)), 12000);
     try {
       const res = await fetch("/api/portfolio/review", { method: "POST" });
       const d = (await res.json()) as { review?: PortfolioReviewV2; notice?: { message: string }; error?: string };
@@ -125,6 +136,7 @@ export function PortfolioWorkspace({ initial, signedIn }: { initial: PortfolioPa
     } catch {
       setNotice("Could not generate the review.");
     } finally {
+      clearInterval(timer);
       setReviewing(false);
     }
   }
@@ -186,8 +198,18 @@ export function PortfolioWorkspace({ initial, signedIn }: { initial: PortfolioPa
               <div className="text-sm font-semibold">Full review {pf.hasActivity && <span className="chip chip-green ml-1">activity loaded</span>}</div>
               <p className="text-xs text-muted mt-1">FCF-first cards, price zones, sell/trim/hold with tax notes, ideas to fill the gaps{pf.newCashUsd > 0 ? `, and a plan for ${money(pf.newCashUsd, "USD", 0)}` : ""}.</p>
             </div>
-            <button className="btn btn-primary" disabled={reviewing} onClick={runReview}>{reviewing ? "Reviewing… (~30s)" : pf.review ? "Refresh review" : "Generate full review"}</button>
+            <button className="btn btn-primary" disabled={reviewing} onClick={runReview}>{reviewing ? "Reviewing…" : pf.review ? "Refresh review" : "Generate full review"}</button>
           </div>
+
+          {reviewing && (
+            <div className="card p-4 flex items-center gap-3">
+              <span className="inline-block w-2.5 h-2.5 rounded-full bg-gold animate-pulse shrink-0" />
+              <div>
+                <div className="text-sm">{REVIEW_STAGES[reviewStage]}</div>
+                <div className="text-xs text-dim mt-0.5">Full reviews take about a minute or two — it pulls live data for every holding and writes several pages. Refreshes are quicker.</div>
+              </div>
+            </div>
+          )}
 
           {pf.review && <PortfolioDashboard review={pf.review} />}
 

@@ -32,7 +32,7 @@ Sections you must produce (see the schema):
 - review: the plain-English HONEST REVIEW a beginner reads first. grade (a letter, no grade inflation), gradeNote, summary (3-4 plain sentences, say "spare cash" not "FCF", "how expensive it is" not "multiple"), good (3-5 things they're doing right), bad (3-5 things that worry you), suggestions (imperative, may use <b>), perStock (one {t, call, tone, line} per holding — a short plain call and one line). Consistent with plan, zones and actions.
 - nextSteps: 4-6 dated, imperative html lines for "What to do, in order" — consistent with the plan, zones and actions (e.g. "<b>Now → Sep 30:</b> buy $600 of X").
 - sources (plain text with as-of dates from FACTS), unverified (one line listing anything not in FACTS).
-Tone: decisive, brief, specific. No hedging paragraphs.`;
+Tone: decisive, brief, specific. Keep every text field to 1-2 tight sentences — the dashboard is compact and brevity keeps it fast. No hedging paragraphs.`;
 
 const SHAPE = JSON.stringify({
   headline: "one line",
