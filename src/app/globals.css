@@ -109,6 +109,14 @@ a {
   color: var(--purple);
 }
 
+/* Horizontal nav that scrolls on small screens without a visible scrollbar. */
+.no-scrollbar {
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
 /* ---------- cards ---------- */
 .card {
   background: var(--card);

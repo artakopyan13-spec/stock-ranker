@@ -28,39 +28,49 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
       <body className="min-h-full flex flex-col">
         <script dangerouslySetInnerHTML={{ __html: THEME_INIT }} />
         <header className="border-b border-line sticky top-0 z-40 bg-bg/90 backdrop-blur">
-          <div className="mx-auto max-w-6xl px-4 py-3 flex items-center gap-4 flex-wrap">
-            <Link href="/" className="font-semibold text-text no-underline tracking-tight">
-              <span className="text-gold">▲</span> Stock Ranker
-            </Link>
-            <nav className="flex items-center gap-4 text-sm">
-              <Link href="/" className="text-muted hover:text-text no-underline">Search</Link>
-              <Link href="/leaderboard" className="text-muted hover:text-text no-underline">Top Rated</Link>
-              <Link href="/track-record" className="text-muted hover:text-text no-underline">Track record</Link>
-              <Link href="/screener" className="text-muted hover:text-text no-underline">Screener</Link>
-              <Link href="/compare" className="text-muted hover:text-text no-underline">Compare</Link>
-              <Link href="/portfolio" className="text-muted hover:text-text no-underline">Portfolio</Link>
-              <Link href="/calendar" className="text-muted hover:text-text no-underline">Calendar</Link>
-              <Link href="/w" className="text-muted hover:text-text no-underline">Watchlists</Link>
-              <Link href="/changes" className="text-muted hover:text-text no-underline">What changed</Link>
-              <Link href="/learn" className="text-muted hover:text-text no-underline">Learn</Link>
-              <Link href="/users" className="text-muted hover:text-text no-underline">People</Link>
-              {user?.role === "admin" && <Link href="/admin" className="text-gold hover:text-text no-underline">Admin</Link>}
-            </nav>
-            <div className="ml-auto flex items-center gap-3 text-sm">
-              <ThemeToggle />
-              {user ? (
-                <>
-                  {!demo && <QuotaBadge />}
-                  <Link href="/profile" className="text-muted hover:text-text no-underline">{user.name ?? user.email}</Link>
-                  <Link href="/settings" className="text-muted hover:text-text no-underline" title="Settings">⚙</Link>
-                  <form action={doSignOut}>
-                    <button type="submit" className="btn btn-ghost py-1 px-2 text-xs">Sign out</button>
-                  </form>
-                </>
-              ) : (
-                <Link href="/signin" className="btn btn-primary py-1 px-3 text-xs no-underline">Sign in</Link>
-              )}
+          <div className="mx-auto max-w-6xl px-4">
+            <div className="flex items-center justify-between gap-4 pt-3.5 pb-2">
+              <Link href="/" className="text-lg font-semibold text-text no-underline tracking-tight shrink-0">
+                <span className="text-gold">▲</span> Stock Ranker
+              </Link>
+              <div className="flex items-center gap-3 text-sm shrink-0">
+                <ThemeToggle />
+                {user ? (
+                  <>
+                    {!demo && <QuotaBadge />}
+                    <Link href="/profile" className="text-muted hover:text-text no-underline hidden sm:inline">{user.name ?? user.email}</Link>
+                    <Link href="/settings" className="text-muted hover:text-text no-underline text-base" title="Settings">⚙</Link>
+                    <form action={doSignOut}>
+                      <button type="submit" className="btn btn-ghost py-1 px-2 text-xs">Sign out</button>
+                    </form>
+                  </>
+                ) : (
+                  <Link href="/signin" className="btn btn-primary py-1.5 px-4 text-sm no-underline">Sign in</Link>
+                )}
+              </div>
             </div>
+            <nav className="flex items-center gap-6 text-[0.95rem] pb-2.5 overflow-x-auto no-scrollbar">
+              {(
+                [
+                  ["/", "Search"],
+                  ["/leaderboard", "Top Rated"],
+                  ["/track-record", "Track record"],
+                  ["/screener", "Screener"],
+                  ["/compare", "Compare"],
+                  ["/portfolio", "Portfolio"],
+                  ["/calendar", "Calendar"],
+                  ["/w", "Watchlists"],
+                  ["/changes", "What changed"],
+                  ["/learn", "Learn"],
+                  ["/users", "People"],
+                ] as const
+              ).map(([href, label]) => (
+                <Link key={href} href={href} className="text-muted hover:text-text no-underline whitespace-nowrap py-0.5 transition-colors">
+                  {label}
+                </Link>
+              ))}
+              {user?.role === "admin" && <Link href="/admin" className="text-gold hover:text-text no-underline whitespace-nowrap py-0.5">Admin</Link>}
+            </nav>
           </div>
         </header>
         <main className="mx-auto w-full max-w-6xl px-4 py-6 flex-1">{children}</main>

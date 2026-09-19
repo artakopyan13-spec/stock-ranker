@@ -56,7 +56,7 @@ export function PortfolioDashboard({ review }: { review: PortfolioReviewV2 }) {
 
   return (
     <div className="card p-0 overflow-hidden">
-      <div className="flex gap-1 border-b border-line overflow-x-auto px-2 bg-card sticky top-[57px] z-20">
+      <div className="flex gap-1 border-b border-line overflow-x-auto no-scrollbar px-2 bg-card sticky top-[80px] z-20">
         {tabs.map(([id, label]) => (
           <button key={id} onClick={() => setTab(id)} className={`px-3 py-2.5 text-sm whitespace-nowrap border-b-2 -mb-px ${tab === id ? "border-gold text-text" : "border-transparent text-muted hover:text-text"}`}>{label}</button>
         ))}
