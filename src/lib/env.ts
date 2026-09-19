@@ -57,6 +57,7 @@ const EnvSchema = z.object({
   GOOGLE_CLIENT_ID: z.string().optional(),
   GOOGLE_CLIENT_SECRET: z.string().optional(),
   AUTH_DEV_LOGIN: boolFromString, // local only: password-less email sign-in for testing
+  ACCESS_CODE: z.string().optional(), // set in prod to enable a shared-code sign-in (no Google needed)
   ADMIN_EMAILS: z.string().default(""), // comma-separated admin emails
 
   // Abuse protection

@@ -1,3 +1,4 @@
+import { timingSafeEqual } from "node:crypto";
 import NextAuth, { type DefaultSession } from "next-auth";
 import Google from "next-auth/providers/google";
 import Credentials from "next-auth/providers/credentials";
@@ -37,6 +38,31 @@ if (e.AUTH_DEV_LOGIN) {
       async authorize(creds) {
         const email = typeof creds?.email === "string" ? creds.email.trim().toLowerCase() : "";
         if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return null;
+        const user = await db().user.upsert({
+          where: { email },
+          create: { email, name: email.split("@")[0], role: roleFor(email), emailVerified: new Date() },
+          update: { role: roleFor(email) },
+        });
+        return { id: user.id, email: user.email, name: user.name, role: user.role };
+      },
+    }),
+  );
+}
+if (e.ACCESS_CODE) {
+  // Shared-code sign-in for production without Google: email + a secret access code you set.
+  providers.push(
+    Credentials({
+      id: "code",
+      name: "Access code",
+      credentials: { email: { label: "Email", type: "email" }, code: { label: "Access code", type: "password" } },
+      async authorize(creds) {
+        const email = typeof creds?.email === "string" ? creds.email.trim().toLowerCase() : "";
+        const code = typeof creds?.code === "string" ? creds.code : "";
+        const expected = env().ACCESS_CODE ?? "";
+        if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return null;
+        const a = Buffer.from(code);
+        const b = Buffer.from(expected);
+        if (a.length !== b.length || !timingSafeEqual(a, b)) return null;
         const user = await db().user.upsert({
           where: { email },
           create: { email, name: email.split("@")[0], role: roleFor(email), emailVerified: new Date() },
