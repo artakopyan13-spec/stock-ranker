@@ -2,11 +2,11 @@
 
 import { useRef, useState } from "react";
 import Link from "next/link";
-import type { EnrichedHolding, Holding, PortfolioMetrics, PortfolioPayload } from "@/lib/portfolio/schema";
+import type { EnrichedHolding, Holding, PortfolioPayload } from "@/lib/portfolio/schema";
 import type { PortfolioReviewV2 } from "@/lib/portfolio/review-schema";
 import { FCF_EMOJI } from "@/lib/analysis/schema";
 import { ChatPanel } from "@/components/ChatPanel";
-import { PortfolioDashboard } from "@/components/PortfolioDashboard";
+import { SkillDashboard } from "@/components/SkillDashboard";
 import { money, pct } from "@/lib/format";
 
 const ACTION_TONE: Record<string, string> = { BUY: "text-green", HOLD: "text-gold", SELL: "text-red" };
@@ -18,12 +18,6 @@ GOOGL, 12, 120`;
 
 function toHolding(h: EnrichedHolding): Holding {
   return { symbol: h.symbol, shares: h.shares, avgCost: h.avgCost, valueUsd: h.valueUsd };
-}
-function diversificationLabel(hhi: number | null): { label: string; tone: string } {
-  if (hhi === null) return { label: "—", tone: "text-muted" };
-  if (hhi < 0.15) return { label: "Well spread", tone: "text-green" };
-  if (hhi < 0.25) return { label: "Moderate", tone: "text-gold" };
-  return { label: "Concentrated", tone: "text-red" };
 }
 const REVIEW_STAGES = [
   "Pulling live prices & fundamentals for each holding…",
@@ -190,7 +184,10 @@ export function PortfolioWorkspace({ initial, signedIn }: { initial: PortfolioPa
 
       {hasHoldings && !editing && (
         <>
-          <Metrics m={pf.metrics} onEdit={() => setEditing(true)} />
+          <div className="flex items-center justify-between gap-2">
+            <div className="text-sm font-semibold">Your holdings <span className="text-muted font-normal">· {pf.holdings.length} position{pf.holdings.length === 1 ? "" : "s"}{pf.cashUsd > 0 ? ` · ${money(pf.cashUsd, "USD", 0)} cash` : ""}</span></div>
+            <button className="chip chip-muted" onClick={() => setEditing(true)}>Edit / add holdings</button>
+          </div>
           <HoldingsTable holdings={pf.holdings} onRemove={removeHolding} />
 
           <div className="card p-4 flex items-center justify-between gap-3 flex-wrap">
@@ -211,7 +208,7 @@ export function PortfolioWorkspace({ initial, signedIn }: { initial: PortfolioPa
             </div>
           )}
 
-          {pf.review && <PortfolioDashboard review={pf.review} />}
+          {pf.review && <SkillDashboard review={pf.review} holdings={pf.holdings} newCashUsd={pf.newCashUsd} generatedAt={pf.review.generatedAt} />}
 
           <div>
             <div className="text-sm font-semibold mb-2">Chat about your portfolio</div>
@@ -227,45 +224,6 @@ export function PortfolioWorkspace({ initial, signedIn }: { initial: PortfolioPa
           </div>
         </>
       )}
-    </div>
-  );
-}
-
-function Metrics({ m, onEdit }: { m: PortfolioMetrics; onEdit: () => void }) {
-  const div = diversificationLabel(m.hhi);
-  return (
-    <div className="space-y-3">
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <Stat label="Total value" value={m.totalValueUsd === null ? "—" : money(m.totalValueUsd, "USD", 0)} sub={m.cashPct === null ? undefined : `${m.cashPct.toFixed(0)}% cash`} />
-        <Stat label="Positions" value={`${m.holdingsCount}`} sub={`${m.analyzedPct.toFixed(0)}% analyzed`} />
-        <Stat label="Top 3 weight" value={m.top3WeightPct === null ? "—" : `${m.top3WeightPct.toFixed(0)}%`} sub={m.topWeightPct === null ? undefined : `top ${m.topWeightPct.toFixed(0)}%`} valueClass={m.top3WeightPct !== null && m.top3WeightPct > 60 ? "text-red" : "text-text"} />
-        <Stat label="Diversification" value={div.label} valueClass={div.tone} sub={m.hhi === null ? undefined : `HHI ${m.hhi.toFixed(2)}`} />
-        <Stat label="Weighted AI rating" value={m.weightedRating === null ? "—" : `${m.weightedRating.toFixed(1)}/10`} sub="value-weighted, analyzed" />
-        <Stat label="Weak-FCF exposure" value={m.weakFcfPct === null ? "—" : `${m.weakFcfPct.toFixed(0)}%`} valueClass={m.weakFcfPct !== null && m.weakFcfPct > 25 ? "text-red" : "text-text"} sub="thin / negative FCF" />
-        <div className="card p-4 col-span-2">
-          <div className="text-xs uppercase tracking-wider text-muted mb-2">Sector exposure</div>
-          <div className="space-y-1">
-            {m.sectors.slice(0, 5).map((s) => (
-              <div key={s.sector} className="flex items-center gap-2 text-xs">
-                <span className="w-24 truncate text-muted">{s.sector}</span>
-                <span className="flex-1 h-2 bg-card2 rounded overflow-hidden"><span className="block h-full bg-purple" style={{ width: `${Math.min(100, s.weightPct)}%` }} /></span>
-                <span className="w-10 text-right tabular-nums">{s.weightPct.toFixed(0)}%</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-      <div className="flex justify-end"><button className="chip chip-muted" onClick={onEdit}>Edit holdings</button></div>
-    </div>
-  );
-}
-
-function Stat({ label, value, sub, valueClass = "text-text" }: { label: string; value: string; sub?: string; valueClass?: string }) {
-  return (
-    <div className="card p-4">
-      <div className="text-xs uppercase tracking-wider text-muted">{label}</div>
-      <div className={`text-xl font-bold mt-1 ${valueClass}`}>{value}</div>
-      {sub && <div className="text-[0.65rem] text-dim mt-1">{sub}</div>}
     </div>
   );
 }
