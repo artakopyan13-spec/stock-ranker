@@ -62,6 +62,7 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
                   ["/w", "Watchlists"],
                   ["/changes", "What changed"],
                   ["/learn", "Learn"],
+                  ["/how-it-works", "How it works"],
                   ["/users", "People"],
                 ] as const
               ).map(([href, label]) => (

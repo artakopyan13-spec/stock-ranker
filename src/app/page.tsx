@@ -49,6 +49,19 @@ export default async function Home() {
         {!e.ANTHROPIC_API_KEY && !e.DEMO_MODE && <p className="mt-2 text-xs text-red">ANTHROPIC_API_KEY is not set — new analyses will fail until it is. Cached analyses still render.</p>}
       </section>
 
+      {!user && (
+        <section className="card p-5 flex flex-col sm:flex-row sm:items-center gap-3 border-l-2 border-l-gold">
+          <div className="flex-1">
+            <div className="font-semibold">New here? Try it with no account.</div>
+            <p className="text-sm text-muted mt-0.5">See a full example portfolio review and browse real analyses — free to explore before you sign up.</p>
+          </div>
+          <div className="flex gap-2 shrink-0">
+            <Link href="/examples" className="btn btn-primary no-underline">See a live example</Link>
+            <Link href="/how-it-works" className="btn no-underline">How it works</Link>
+          </div>
+        </section>
+      )}
+
       <section>
         <h2 className="text-sm font-semibold uppercase tracking-wider text-muted mb-3">Explore the tools</h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
