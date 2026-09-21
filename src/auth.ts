@@ -5,6 +5,7 @@ import Credentials from "next-auth/providers/credentials";
 import { PrismaAdapter } from "@auth/prisma-adapter";
 import { db } from "@/lib/db";
 import { env } from "@/lib/env";
+import { normalizeEmail, verifyEmailCode } from "@/lib/auth/otp";
 
 declare module "next-auth" {
   interface Session {
@@ -67,6 +68,28 @@ if (e.ACCESS_CODE) {
           where: { email },
           create: { email, name: email.split("@")[0], role: roleFor(email), emailVerified: new Date() },
           update: { role: roleFor(email) },
+        });
+        return { id: user.id, email: user.email, name: user.name, role: user.role };
+      },
+    }),
+  );
+}
+
+if (e.EMAIL_CODE_LOGIN) {
+  // Passwordless email sign-in: the user requests a 6-digit code, then signs in with it.
+  providers.push(
+    Credentials({
+      id: "email-code",
+      name: "Email code",
+      credentials: { email: { label: "Email", type: "email" }, code: { label: "Code", type: "text" } },
+      async authorize(creds) {
+        const email = normalizeEmail(creds?.email);
+        const code = typeof creds?.code === "string" ? creds.code.trim() : "";
+        if (!(await verifyEmailCode(email, code))) return null;
+        const user = await db().user.upsert({
+          where: { email },
+          create: { email, name: email.split("@")[0], role: roleFor(email), emailVerified: new Date() },
+          update: { role: roleFor(email), emailVerified: new Date() },
         });
         return { id: user.id, email: user.email, name: user.name, role: user.role };
       },

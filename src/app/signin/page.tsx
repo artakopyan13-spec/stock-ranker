@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { env } from "@/lib/env";
 import { currentUser } from "@/auth";
 import { googleSignIn, devSignIn, codeSignIn } from "@/lib/auth-actions";
+import { EmailCodeForm } from "@/components/EmailCodeForm";
 import { DISCLAIMER } from "@/lib/analysis/schema";
 
 export const metadata: Metadata = { title: "Sign in" };
@@ -13,6 +14,7 @@ export default async function SignInPage() {
   if (user) redirect("/");
   const e = env();
   const hasGoogle = Boolean(e.GOOGLE_CLIENT_ID && e.GOOGLE_CLIENT_SECRET);
+  const hasEmailCode = e.EMAIL_CODE_LOGIN;
   const hasCode = Boolean(e.ACCESS_CODE);
   const devLogin = e.AUTH_DEV_LOGIN;
   return (
@@ -26,6 +28,12 @@ export default async function SignInPage() {
           <form action={googleSignIn}>
             <button type="submit" className="btn btn-primary w-full justify-center">Continue with Google</button>
           </form>
+        )}
+        {hasEmailCode && (
+          <div className="space-y-2">
+            {hasGoogle && <div className="text-center text-xs text-dim">or, sign in with your email</div>}
+            <EmailCodeForm />
+          </div>
         )}
         {hasCode && (
           <form action={codeSignIn} className="space-y-2">
@@ -42,7 +50,7 @@ export default async function SignInPage() {
             <button type="submit" className="btn w-full justify-center">Dev sign-in (no password)</button>
           </form>
         )}
-        {!hasGoogle && !devLogin && !hasCode && (
+        {!hasGoogle && !devLogin && !hasCode && !hasEmailCode && (
           <p className="text-sm text-muted">Sign-in is not configured on this deployment. Set an <code>ACCESS_CODE</code> for a shared-code login, add <code>GOOGLE_CLIENT_ID</code>/<code>GOOGLE_CLIENT_SECRET</code> for Google, or <code>AUTH_DEV_LOGIN=true</code> for local testing.</p>
         )}
       </div>

@@ -60,6 +60,12 @@ const EnvSchema = z.object({
   ACCESS_CODE: z.string().optional(), // set in prod to enable a shared-code sign-in (no Google needed)
   ADMIN_EMAILS: z.string().default(""), // comma-separated admin emails
 
+  // Email verification-code sign-in. With RESEND_API_KEY set, codes are emailed via Resend;
+  // without it (local dev) the code is logged to the server console instead.
+  RESEND_API_KEY: z.string().optional(),
+  EMAIL_FROM: z.string().default("Stock Ranker <onboarding@resend.dev>"),
+  EMAIL_CODE_LOGIN: boolFromString, // enable the email-code sign-in provider + UI
+
   // Abuse protection
   TURNSTILE_SECRET_KEY: z.string().optional(),
   NEXT_PUBLIC_TURNSTILE_SITE_KEY: z.string().optional(),

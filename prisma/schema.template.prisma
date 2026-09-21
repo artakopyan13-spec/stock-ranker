@@ -267,6 +267,16 @@ model VerificationToken {
   @@unique([identifier, token])
 }
 
+/// One active email sign-in code per email. The code is stored hashed; a request
+/// upserts (resetting attempts), verification deletes it. Rate-limited by createdAt.
+model EmailCode {
+  email     String   @id
+  codeHash  String
+  expiresAt DateTime
+  attempts  Int      @default(0)
+  createdAt DateTime @default(now())
+}
+
 /// A user's saved screener filter set.
 model SavedScreen {
   id        String   @id @default(cuid())
