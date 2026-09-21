@@ -12,7 +12,7 @@ export function EmailCodeForm() {
 
   if (sent.step !== "code") {
     return (
-      <form action={sendAction} className="space-y-2">
+      <form key="email-step" action={sendAction} className="space-y-2">
         <input name="email" type="email" required placeholder="you@example.com" className="w-full" autoComplete="email" />
         <button type="submit" className="btn btn-primary w-full justify-center" disabled={sending}>
           {sending ? "Sending…" : "Email me a sign-in code"}
@@ -23,7 +23,7 @@ export function EmailCodeForm() {
   }
 
   return (
-    <form action={verifyAction} className="space-y-2">
+    <form key="code-step" action={verifyAction} className="space-y-2">
       <input type="hidden" name="email" value={sent.email} />
       {sent.notice && <p className="text-xs text-muted">{sent.notice}</p>}
       {sent.devCode && (
