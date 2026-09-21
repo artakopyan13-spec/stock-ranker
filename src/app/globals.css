@@ -117,6 +117,58 @@ a {
   display: none;
 }
 
+/* ---------- landing page ---------- */
+.reveal {
+  opacity: 0;
+  transform: translateY(26px);
+  transition:
+    opacity 0.7s ease,
+    transform 0.7s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.reveal.in {
+  opacity: 1;
+  transform: none;
+}
+.lp-orb {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(2px);
+  opacity: 0.5;
+}
+@keyframes lp-float1 {
+  0%, 100% { transform: translate(0, 0); }
+  50% { transform: translate(18px, -24px); }
+}
+@keyframes lp-float2 {
+  0%, 100% { transform: translate(0, 0); }
+  50% { transform: translate(-22px, 16px); }
+}
+@keyframes lp-pulse {
+  0%, 100% { opacity: 0.25; transform: scale(1); }
+  50% { opacity: 0.8; transform: scale(1.25); }
+}
+@keyframes lp-hero-in {
+  from { opacity: 0; transform: translateY(18px); }
+  to { opacity: 1; transform: none; }
+}
+.lp-in {
+  animation: lp-hero-in 0.8s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+@keyframes lp-drift {
+  from { background-position: 0% 50%; }
+  to { background-position: 100% 50%; }
+}
+.lp-gradient {
+  background:
+    radial-gradient(1000px 460px at 82% -8%, rgba(142, 134, 216, 0.22), transparent 60%),
+    radial-gradient(900px 420px at 12% 4%, rgba(90, 200, 200, 0.16), transparent 60%),
+    radial-gradient(700px 500px at 60% 100%, rgba(201, 163, 92, 0.12), transparent 60%);
+}
+@media (prefers-reduced-motion: reduce) {
+  .reveal { opacity: 1; transform: none; transition: none; }
+  .lp-orb, .lp-in { animation: none !important; }
+}
+
 /* ---------- cards ---------- */
 .card {
   background: var(--card);

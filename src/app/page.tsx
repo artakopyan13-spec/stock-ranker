@@ -9,6 +9,7 @@ import { CreateWatchlist } from "@/components/WatchlistTools";
 import { ActionChip } from "@/components/ui";
 import { FCF_EMOJI } from "@/lib/analysis/schema";
 import { ago } from "@/lib/format";
+import { Landing } from "@/components/Landing";
 
 export const dynamic = "force-dynamic";
 
@@ -16,6 +17,8 @@ export default async function Home() {
   const e = env();
   const prisma = db();
   const user = await currentUser();
+  // Signed-out visitors get the marketing landing page (its own header/footer).
+  if (!user && !e.DEMO_MODE) return <Landing />;
   const [watchlists, recent] = await Promise.all([
     listWatchlists(user?.id ?? null, true),
     prisma.analysis.findMany({ where: { verified: true }, orderBy: { createdAt: "desc" }, take: 40, select: { symbol: true, rating: true, action: true, fcfVerdict: true, createdAt: true, ticker: { select: { name: true, isDemo: true } } } }),
@@ -48,19 +51,6 @@ export default async function Home() {
         </div>
         {!e.ANTHROPIC_API_KEY && !e.DEMO_MODE && <p className="mt-2 text-xs text-red">ANTHROPIC_API_KEY is not set — new analyses will fail until it is. Cached analyses still render.</p>}
       </section>
-
-      {!user && (
-        <section className="card p-5 flex flex-col sm:flex-row sm:items-center gap-3 border-l-2 border-l-gold">
-          <div className="flex-1">
-            <div className="font-semibold">New here? Try it with no account.</div>
-            <p className="text-sm text-muted mt-0.5">See a full example portfolio review and browse real analyses — free to explore before you sign up.</p>
-          </div>
-          <div className="flex gap-2 shrink-0">
-            <Link href="/examples" className="btn btn-primary no-underline">See a live example</Link>
-            <Link href="/how-it-works" className="btn no-underline">How it works</Link>
-          </div>
-        </section>
-      )}
 
       <section>
         <h2 className="text-sm font-semibold uppercase tracking-wider text-muted mb-3">Explore the tools</h2>
