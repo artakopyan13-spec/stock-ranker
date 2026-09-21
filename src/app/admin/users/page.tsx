@@ -1,5 +1,5 @@
-import { redirect } from "next/navigation";
-import { isAdmin } from "@/auth";
+import { notFound, redirect } from "next/navigation";
+import { currentUser } from "@/auth";
 import { db } from "@/lib/db";
 import { startOfUtcDay } from "@/lib/quota/spend";
 import { setUserBanned, setUserQuota } from "@/lib/admin-actions";
@@ -8,7 +8,9 @@ import { ago } from "@/lib/format";
 export const dynamic = "force-dynamic";
 
 export default async function AdminUsersPage() {
-  if (!(await isAdmin())) redirect("/signin");
+  const admin = await currentUser();
+  if (!admin) redirect("/signin");
+  if (admin.role !== "admin") notFound();
   const prisma = db();
   const users = await prisma.user.findMany({ orderBy: { createdAt: "desc" }, take: 200 });
   const since = startOfUtcDay();

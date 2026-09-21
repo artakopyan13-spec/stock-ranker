@@ -1,6 +1,6 @@
 import Link from "next/link";
-import { redirect } from "next/navigation";
-import { isAdmin } from "@/auth";
+import { notFound, redirect } from "next/navigation";
+import { currentUser } from "@/auth";
 import { env } from "@/lib/env";
 import { effectiveLimits } from "@/lib/quota/settings";
 import { spendToday, analysesToday } from "@/lib/quota/spend";
@@ -9,7 +9,9 @@ import { saveSettings } from "@/lib/admin-actions";
 export const dynamic = "force-dynamic";
 
 export default async function AdminPage() {
-  if (!(await isAdmin())) redirect("/signin");
+  const admin = await currentUser();
+  if (!admin) redirect("/signin");
+  if (admin.role !== "admin") notFound();
   const e = env();
   const [limits, spend, count] = await Promise.all([effectiveLimits(), spendToday(), analysesToday()]);
   const pct = limits.spendCeilingUsd > 0 ? Math.min(100, (spend / limits.spendCeilingUsd) * 100) : 0;

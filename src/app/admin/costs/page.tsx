@@ -1,5 +1,5 @@
-import { redirect } from "next/navigation";
-import { isAdmin } from "@/auth";
+import { notFound, redirect } from "next/navigation";
+import { currentUser } from "@/auth";
 import { db } from "@/lib/db";
 import { env } from "@/lib/env";
 import { estimatePerAnalysisUsd } from "@/lib/ai/pricing";
@@ -25,7 +25,9 @@ async function loadCosts() {
 }
 
 export default async function CostsPage() {
-  if (!(await isAdmin())) redirect("/signin");
+  const admin = await currentUser();
+  if (!admin) redirect("/signin");
+  if (admin.role !== "admin") notFound();
   const e = env();
   const [logs, runs, today, watched, topTickers, topUsers] = await loadCosts();
   const userEmails = new Map((await db().user.findMany({ where: { id: { in: topUsers.map((u) => u.userId!).filter(Boolean) } }, select: { id: true, email: true } })).map((u) => [u.id, u.email]));
