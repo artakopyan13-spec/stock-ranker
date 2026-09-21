@@ -1,8 +1,10 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import Link from "next/link";
 import { ThemeToggle } from "@/components/ThemeToggle";
+
+const SCROLLY_STEPS = ["Pull the live data", "Read the financials", "Free cash flow first", "Five analysts weigh in", "A rating, on the record"];
 
 /** A slice of the coverage universe for the scrolling ticker — illustrative, not live quotes. */
 const TICKERS: [string, string, string][] = [
@@ -42,8 +44,58 @@ export function Landing() {
     return () => io.disconnect();
   }, []);
 
+  // Scroll-driven "assemble an analysis" section. Progressively reveals dashboard
+  // parts as the pinned stage scrolls through. DOM-only (no React state) so it stays
+  // cheap on scroll; degrades to fully-shown for reduced-motion / no-JS.
+  const scrollyRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const wrap = scrollyRef.current;
+    if (!wrap) return;
+    const parts = Array.from(wrap.querySelectorAll<HTMLElement>(".lp-appear"));
+    const caption = wrap.querySelector<HTMLElement>(".lp-step-caption");
+    const barFill = wrap.querySelector<HTMLElement>(".lp-step-bar-fill");
+    const dots = Array.from(wrap.querySelectorAll<HTMLElement>(".lp-step-dot"));
+    const N = SCROLLY_STEPS.length;
+
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      parts.forEach((p) => p.classList.add("on"));
+      dots.forEach((d) => d.classList.add("on"));
+      if (caption) caption.textContent = SCROLLY_STEPS[N - 1];
+      if (barFill) barFill.style.width = "100%";
+      return;
+    }
+
+    let raf = 0;
+    let lastStep = -1;
+    const update = () => {
+      raf = 0;
+      const rect = wrap.getBoundingClientRect();
+      const total = wrap.offsetHeight - window.innerHeight;
+      const progress = total > 0 ? Math.min(1, Math.max(0, -rect.top / total)) : 0;
+      const step = rect.top > 0 ? 0 : Math.min(N, Math.floor(progress * N) + 1);
+      if (barFill) barFill.style.width = `${Math.round(progress * 100)}%`;
+      if (step !== lastStep) {
+        lastStep = step;
+        parts.forEach((p, i) => p.classList.toggle("on", i < step));
+        dots.forEach((d, i) => d.classList.toggle("on", i < step));
+        if (caption) caption.textContent = SCROLLY_STEPS[Math.min(N - 1, Math.max(0, step - 1))];
+      }
+    };
+    const onScroll = () => {
+      if (!raf) raf = requestAnimationFrame(update);
+    };
+    window.addEventListener("scroll", onScroll, { passive: true });
+    window.addEventListener("resize", onScroll);
+    update();
+    return () => {
+      window.removeEventListener("scroll", onScroll);
+      window.removeEventListener("resize", onScroll);
+      if (raf) cancelAnimationFrame(raf);
+    };
+  }, []);
+
   return (
-    <div className="lp-theme min-h-full flex flex-col overflow-x-hidden">
+    <div className="lp-theme min-h-full flex flex-col">
       {/* ---------- header ---------- */}
       <header className="sticky top-0 z-50 bg-bg/70 backdrop-blur-xl border-b border-line/70">
         <div className="mx-auto max-w-6xl px-4 h-14 flex items-center justify-between gap-4">
@@ -236,6 +288,112 @@ export function Landing() {
               <p className="text-sm text-muted mt-1.5 leading-snug">{f.p}</p>
             </div>
           ))}
+        </div>
+      </section>
+
+      {/* ---------- scrolly: assemble an analysis ---------- */}
+      <section ref={scrollyRef} className="lp-scrolly border-y border-line" style={{ height: "300vh" }}>
+        <div className="lp-stage">
+          <div className="mx-auto max-w-5xl px-4 w-full grid md:grid-cols-[1fr_1.1fr] gap-10 items-center">
+            {/* narrative */}
+            <div>
+              <div className="text-xs uppercase tracking-[0.18em] text-gold">Watch it work</div>
+              <h2 className="text-2xl md:text-4xl font-semibold tracking-tight mt-2 leading-tight">An analysis, taking shape.</h2>
+              <p className="text-muted mt-3 max-w-md">Live data in, a full picture out — assembled the same way every time. Scroll to watch it build.</p>
+              <ol className="mt-6 space-y-2.5">
+                {SCROLLY_STEPS.map((s, i) => (
+                  <li key={s} className="lp-step-dot flex items-center gap-3 text-sm">
+                    <span className="lp-step-num">{i + 1}</span>
+                    <span className="lp-step-label">{s}</span>
+                  </li>
+                ))}
+              </ol>
+              <div className="lp-step-bar mt-6"><span className="lp-step-bar-fill" /></div>
+              <div className="lp-step-caption text-xs text-muted mt-2">{SCROLLY_STEPS[0]}</div>
+            </div>
+
+            {/* assembling dashboard (no numbers — illustrative) */}
+            <div className="relative">
+              <div aria-hidden className="lp-card-glow" />
+              <div className="card lp-glass p-5 relative">
+                {/* 1 · ticker + analyzing */}
+                <div className="lp-appear flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="chip chip-muted text-xs">▲ TICKER</span>
+                    <span className="text-xs text-muted">Company, Inc.</span>
+                  </div>
+                  <span className="chip chip-purple text-xs">◐ Analyzing</span>
+                </div>
+
+                {/* 2 · reading financials — skeleton rows + KPI tiles */}
+                <div className="lp-appear mt-4">
+                  <div className="space-y-2">
+                    <div className="skeleton h-3 w-3/4" />
+                    <div className="skeleton h-3 w-1/2" />
+                    <div className="skeleton h-3 w-2/3" />
+                  </div>
+                  <div className="mt-3 grid grid-cols-4 gap-2">
+                    {Array.from({ length: 4 }).map((_v, i) => (
+                      <div key={i} className="card-2 p-2">
+                        <div className="skeleton h-1.5 w-3/4 mb-1.5" />
+                        <div className="skeleton h-3 w-full" />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* 3 · chart draws in */}
+                <div className="lp-appear mt-4">
+                  <svg viewBox="0 0 320 90" className="w-full h-20" preserveAspectRatio="none" aria-hidden>
+                    <defs>
+                      <linearGradient id="lpscrolly" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="var(--gold)" stopOpacity="0.28" />
+                        <stop offset="100%" stopColor="var(--gold)" stopOpacity="0" />
+                      </linearGradient>
+                    </defs>
+                    <path d="M0 74 L30 66 L60 72 L92 52 L120 60 L150 42 L180 50 L210 32 L244 40 L270 24 L300 16 L320 14 L320 90 L0 90 Z" fill="url(#lpscrolly)" />
+                    <path className="lp-chartline" d="M0 74 L30 66 L60 72 L92 52 L120 60 L150 42 L180 50 L210 32 L244 40 L270 24 L300 16 L320 14" fill="none" stroke="var(--gold)" strokeWidth="2.25" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                </div>
+
+                {/* 4 · FCF verdict + bull/bear */}
+                <div className="lp-appear mt-4">
+                  <div className="card-2 p-3 flex items-center gap-2 border-l-2 border-l-green">
+                    <span className="text-lg">✅</span>
+                    <div className="text-xs"><b>Free cash flow</b><div className="text-muted">healthy &amp; growing</div></div>
+                    <span className="chip chip-green text-xs ml-auto">Healthy</span>
+                  </div>
+                  <div className="mt-3">
+                    <div className="flex justify-between text-[0.58rem] text-muted mb-1"><span>Bull case</span><span>Bear case</span></div>
+                    <div className="h-1.5 rounded-full overflow-hidden flex bg-card2">
+                      <span className="bg-green" style={{ width: "62%" }} />
+                      <span className="bg-red" style={{ width: "38%" }} />
+                    </div>
+                  </div>
+                </div>
+
+                {/* 5 · committee + rating + verdict */}
+                <div className="lp-appear mt-4">
+                  <div className="flex items-center gap-3">
+                    <div className="flex -space-x-2">
+                      {["🔬", "🛡️", "🌐", "😈", "💰"].map((a, i) => (
+                        <span key={i} className="lp-avatar" aria-hidden>{a}</span>
+                      ))}
+                    </div>
+                    <span className="text-xs text-muted">Committee agrees</span>
+                    <span className="chip chip-gold text-xs ml-auto">HOLD</span>
+                  </div>
+                  <div className="mt-3 flex gap-1">
+                    {Array.from({ length: 10 }).map((_v, i) => (
+                      <span key={i} className={`flex-1 h-1.5 rounded ${i < 7 ? "bg-gold" : "bg-card2"}`} />
+                    ))}
+                  </div>
+                </div>
+
+                <div className="mt-4 text-[0.6rem] text-dim">Illustrative — a real report carries every figure with its source &amp; date.</div>
+              </div>
+            </div>
+          </div>
         </div>
       </section>
 

@@ -311,6 +311,104 @@ a {
   pointer-events: none;
 }
 
+/* ---- scroll-driven "assemble an analysis" ---- */
+.lp-scrolly {
+  position: relative;
+}
+.lp-stage {
+  position: sticky;
+  top: 0;
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+}
+/* parts fade+slide in as the stage scrolls */
+.lp-appear {
+  opacity: 0;
+  transform: translateY(22px) scale(0.985);
+  transition:
+    opacity 0.6s ease,
+    transform 0.6s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.lp-appear.on {
+  opacity: 1;
+  transform: none;
+}
+/* chart redraws each time it reveals */
+.lp-chartline {
+  stroke-dasharray: 1000;
+  stroke-dashoffset: 1000;
+}
+.lp-appear.on .lp-chartline {
+  animation: draw 1.3s ease-out forwards;
+}
+/* committee avatars */
+.lp-avatar {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 12px;
+  background: var(--card-2);
+  border: 1px solid var(--line);
+}
+/* step list — dims until reached */
+.lp-step-dot {
+  opacity: 0.4;
+  transition: opacity 0.35s ease;
+}
+.lp-step-dot.on {
+  opacity: 1;
+}
+.lp-step-num {
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--muted);
+  background: var(--card-2);
+  border: 1px solid var(--line);
+  flex-shrink: 0;
+  transition:
+    color 0.35s ease,
+    background 0.35s ease,
+    border-color 0.35s ease;
+}
+.lp-step-dot.on .lp-step-num {
+  color: var(--gold);
+  background: var(--gold-bg);
+  border-color: color-mix(in srgb, var(--gold) 40%, transparent);
+}
+.lp-step-bar {
+  height: 3px;
+  border-radius: 999px;
+  background: var(--card-2);
+  overflow: hidden;
+}
+.lp-step-bar-fill {
+  display: block;
+  height: 100%;
+  width: 0;
+  background: linear-gradient(90deg, var(--gold), var(--purple));
+  transition: width 0.15s linear;
+}
+@media (prefers-reduced-motion: reduce) {
+  .lp-appear {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+  .lp-appear.on .lp-chartline {
+    animation: none;
+    stroke-dashoffset: 0;
+  }
+}
+
 /* mock dashboard tabs */
 .lp-tab {
   padding: 2px 9px;
