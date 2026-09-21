@@ -311,6 +311,29 @@ a {
   pointer-events: none;
 }
 
+/* value / risk-reversal top bar */
+.lp-topbar {
+  background: color-mix(in srgb, var(--gold) 12%, var(--bg));
+  color: var(--muted);
+  border-bottom: 1px solid var(--line);
+}
+
+/* FAQ accordion */
+.lp-faq > summary {
+  list-style: none;
+}
+.lp-faq > summary::-webkit-details-marker {
+  display: none;
+}
+.lp-faq-plus {
+  display: inline-block;
+  transition: transform 0.2s ease;
+  flex-shrink: 0;
+}
+.lp-faq[open] .lp-faq-plus {
+  transform: rotate(45deg);
+}
+
 /* ---- scroll-driven "assemble an analysis" ---- */
 .lp-scrolly {
   position: relative;

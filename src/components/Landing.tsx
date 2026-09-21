@@ -4,22 +4,22 @@ import { useEffect, useRef } from "react";
 import Link from "next/link";
 import { ThemeToggle } from "@/components/ThemeToggle";
 
+const CTA_PRIMARY = "Analyze a stock — free";
+
 const SCROLLY_STEPS = ["Pull the live data", "Read the financials", "Free cash flow first", "Five analysts weigh in", "A rating, on the record"];
 
-/** A slice of the coverage universe for the scrolling ticker — illustrative, not live quotes. */
-const TICKERS: [string, string, string][] = [
-  ["NVDA", "8/10", "✅"],
-  ["AAPL", "7/10", "✅"],
-  ["MSFT", "8/10", "✅"],
-  ["GOOGL", "7/10", "✅"],
-  ["META", "7/10", "✅"],
-  ["AMZN", "6/10", "⚠️"],
-  ["COST", "6/10", "✅"],
-  ["TSLA", "4/10", "⚠️"],
-  ["AMD", "6/10", "✅"],
-  ["NFLX", "7/10", "✅"],
-  ["JPM", "7/10", "✅"],
-  ["V", "8/10", "✅"],
+const PROBLEMS: { icon: string; h: string; p: string }[] = [
+  { icon: "🤖", h: "AI that makes things up", p: "Chatbots invent numbers and never show a source. You can’t act on a confident guess." },
+  { icon: "🗣️", h: "Anonymous hot takes", p: "Undated opinions from strangers who are never graded when they turn out wrong." },
+  { icon: "⏳", h: "Hours of digging", p: "Real diligence — filings, cash flow, multiples — takes time you don’t have before the open." },
+];
+
+const FEATURES: { icon: string; h: string; p: string }[] = [
+  { icon: "🩺", h: "Portfolio X-ray", p: "Paste holdings or upload a statement for an honest, FCF-first review: concentration, price zones, trim / hold, ideas to fill the gaps." },
+  { icon: "💬", h: "Ask this stock", p: "A copilot that answers only from the verified analysis on the page. It will not make up a number." },
+  { icon: "📊", h: "A public track record", p: "Every rating ever made, graded against today’s price — the losers included. No cherry-picking." },
+  { icon: "⏱️", h: "Time machine", p: "Scrub the AI’s past calls over the price chart and see the return since each one." },
+  { icon: "🔎", h: "Screener & compare", p: "Filter the whole universe by rating, cash flow, growth and value; compare five names side by side." },
 ];
 
 const STEPS: { n: string; h: string; p: string }[] = [
@@ -27,6 +27,14 @@ const STEPS: { n: string; h: string; p: string }[] = [
   { n: "02", h: "AI judges, code counts", p: "Claude analyses the business; every number is computed by code and reconciled by a verifier before it is ever shown to you." },
   { n: "03", h: "Free cash flow first", p: "Each report leads with FCF and a ✅ / ⚠️ / ❌ verdict. Collapsing cash flow is headline risk, not a footnote." },
   { n: "04", h: "Sourced, dated, honest", p: "Every figure carries its source and date, and the app keeps a public scorecard of whether its own calls were right." },
+];
+
+const FAQ: { q: string; a: string }[] = [
+  { q: "Is this financial advice?", a: "No. It’s research — the model’s judgment, clearly labelled as an estimate. You make the call, and you should verify any figure against its cited source before acting." },
+  { q: "How do I know the numbers are right?", a: "Every figure is computed by code, reconciled by a verifier, and shown with its source and date. Anything it can’t verify is labelled “unverified”, never invented." },
+  { q: "Is it really free?", a: "Yes — free, no credit card. You can run your first full analysis in about a minute." },
+  { q: "Won’t it just say “buy” on everything?", a: "No. It grades its own calls in public and shows the losers, and it hands out HOLD and SELL too — leading with free cash flow, not hype." },
+  { q: "What can it analyze?", a: "Any listed stock, plus your whole portfolio. Screen the universe, compare names, or X-ray what you already own." },
 ];
 
 export function Landing() {
@@ -96,6 +104,11 @@ export function Landing() {
 
   return (
     <div className="lp-theme min-h-full flex flex-col">
+      {/* value / risk-reversal bar */}
+      <div className="w-full text-center text-[0.72rem] sm:text-xs py-1.5 px-4 lp-topbar">
+        Free · no credit card · every figure sourced &amp; dated — or flagged unverified, never invented
+      </div>
+
       {/* ---------- header ---------- */}
       <header className="sticky top-0 z-50 bg-bg/70 backdrop-blur-xl border-b border-line/70">
         <div className="mx-auto max-w-6xl px-4 h-14 flex items-center justify-between gap-4">
@@ -110,7 +123,7 @@ export function Landing() {
       </header>
 
       {/* ---------- hero ---------- */}
-      <section className="relative overflow-hidden lp-gradient lp-grid-bg border-b border-line">
+      <section className="relative overflow-hidden lp-gradient border-b border-line">
         <div aria-hidden className="pointer-events-none absolute inset-0">
           <span className="lp-orb" style={{ width: 14, height: 14, left: "78%", top: "16%", background: "var(--purple)", animation: "lp-float1 7s ease-in-out infinite" }} />
           <span className="lp-orb" style={{ width: 8, height: 8, left: "90%", top: "50%", background: "var(--gold)", animation: "lp-pulse 5s ease-in-out infinite" }} />
@@ -122,24 +135,24 @@ export function Landing() {
           {/* copy */}
           <div className="lp-in">
             <div className="inline-flex items-center gap-2 rounded-full border border-line bg-card/60 px-3 py-1 text-xs text-muted backdrop-blur">
-              <span className="lp-live-dot" /> AI stock research, done honestly
+              <span className="lp-live-dot" /> For investors who want the truth, not a hot take
             </div>
             <h1 className="mt-4 text-4xl md:text-6xl font-semibold tracking-tight leading-[1.04]">
-              Know what a stock is <span className="lp-title-grad">really worth</span>.
+              Know what a stock is <span className="lp-title-grad">really worth</span> — in about a minute.
             </h1>
             <p className="text-muted mt-5 max-w-lg leading-relaxed text-[1.02rem]">
-              A full analyst‑grade report on any stock in seconds — rating, bull vs. bear, catalysts, a 12‑month view — with one rule above all:
-              <span className="text-text"> every number is sourced, dated, and never invented.</span>
+              A full analyst‑grade report on any stock — rating, bull vs. bear, catalysts, a 12‑month view.
+              <span className="text-text"> Every number is sourced and dated, or flagged unverified. Never invented.</span>
             </p>
             <div className="mt-7 flex flex-wrap gap-3">
-              <Link href="/signin" className="btn btn-primary no-underline px-5 py-2.5 lp-shine">Get started — free</Link>
+              <Link href="/signin" className="btn btn-primary no-underline px-5 py-2.5 lp-shine">{CTA_PRIMARY}</Link>
               <Link href="/examples" className="btn no-underline px-5 py-2.5">See a live example →</Link>
             </div>
-            <div className="mt-7 flex flex-wrap gap-x-5 gap-y-2 text-xs text-muted">
+            <div className="mt-4 text-xs text-muted">Free · no credit card · your first report in about a minute</div>
+            <div className="mt-6 flex flex-wrap gap-x-5 gap-y-2 text-xs text-muted">
               <span className="lp-tick">Source‑verified</span>
               <span className="lp-tick">Free cash flow first</span>
               <span className="lp-tick">It grades itself</span>
-              <span className="lp-tick">No card required</span>
             </div>
           </div>
 
@@ -148,7 +161,6 @@ export function Landing() {
             <div className="lp-float-card relative">
               <div aria-hidden className="lp-card-glow" />
               <div className="card lp-glass p-5 relative">
-                {/* header: symbol · price · rating */}
                 <div className="flex items-start justify-between">
                   <div>
                     <div className="flex items-center gap-2">
@@ -163,21 +175,18 @@ export function Landing() {
                   </div>
                 </div>
 
-                {/* rating pips */}
                 <div className="mt-3 flex gap-1">
                   {Array.from({ length: 10 }).map((_v, i) => (
                     <span key={i} className={`lp-pip flex-1 h-1.5 rounded ${i < 7 ? "bg-gold" : "bg-card2"}`} style={{ animationDelay: `${0.5 + i * 0.06}s` }} />
                   ))}
                 </div>
 
-                {/* tabs */}
                 <div className="mt-4 flex gap-1.5 text-[0.7rem]">
                   <span className="lp-tab lp-tab-on">Overview</span>
                   <span className="lp-tab">Financials</span>
                   <span className="lp-tab">Catalysts</span>
                 </div>
 
-                {/* price chart */}
                 <div className="mt-3 relative">
                   <svg viewBox="0 0 320 96" className="w-full h-24" preserveAspectRatio="none" aria-hidden>
                     <defs>
@@ -194,13 +203,11 @@ export function Landing() {
                   <div className="flex justify-between text-[0.58rem] text-dim mt-0.5"><span>12M ago</span><span>today</span></div>
                 </div>
 
-                {/* FCF verdict */}
                 <div className="mt-3 card-2 p-3 flex items-center gap-2 border-l-2 border-l-green">
                   <span className="text-lg">✅</span>
                   <div className="text-xs"><b>Free cash flow healthy</b><div className="text-muted">$127B TTM · 42% margin · +18% YoY</div></div>
                 </div>
 
-                {/* KPI grid */}
                 <dl className="mt-3 grid grid-cols-4 gap-2 text-center">
                   {([["Fwd P/E", "13.7×", ""], ["FCF margin", "42%", "up"], ["Rev growth", "+106%", "up"], ["Net cash", "$26B", "up"]] as const).map(([k, v, t], i) => (
                     <div key={k} className="card-2 p-2 fade-up" style={{ animationDelay: `${0.9 + i * 0.08}s` }}>
@@ -212,7 +219,6 @@ export function Landing() {
                   ))}
                 </dl>
 
-                {/* bull vs bear */}
                 <div className="mt-3">
                   <div className="flex justify-between text-[0.58rem] text-muted mb-1"><span>Bull case 62%</span><span>38% Bear</span></div>
                   <div className="h-1.5 rounded-full overflow-hidden flex bg-card2">
@@ -227,11 +233,11 @@ export function Landing() {
           </div>
         </div>
 
-        {/* ticker marquee */}
+        {/* coverage ticker */}
         <div className="relative border-t border-line/70 bg-bg/40 backdrop-blur">
           <div className="lp-marquee py-2.5">
             <div className="lp-marquee-track">
-              {[...TICKERS, ...TICKERS].map(([sym, rating, fcf], i) => (
+              {[...COVERAGE, ...COVERAGE].map(([sym, rating, fcf], i) => (
                 <span key={`${sym}-${i}`} className="lp-tickitem">
                   <span className="font-semibold text-text">{sym}</span>
                   <span className="text-gold font-semibold">{rating}</span>
@@ -245,57 +251,49 @@ export function Landing() {
         </div>
       </section>
 
-      {/* ---------- bento features ---------- */}
+      {/* ---------- problem ---------- */}
       <section className="mx-auto max-w-6xl px-4 py-20 md:py-24">
         <div className="reveal max-w-2xl">
-          <div className="text-xs uppercase tracking-[0.18em] text-gold">The desk</div>
-          <h2 className="text-2xl md:text-4xl font-semibold tracking-tight mt-2">More than a chatbot wrapper.</h2>
-          <p className="text-muted mt-3">Six tools that make it feel like a research floor — a committee, a copilot, a track record — not a prompt box.</p>
+          <div className="text-xs uppercase tracking-[0.18em] text-gold">The problem</div>
+          <h2 className="text-2xl md:text-4xl font-semibold tracking-tight mt-2">Most stock “research” is a confident guess.</h2>
+          <p className="text-muted mt-3">You deserve better than vibes with a chart attached.</p>
         </div>
-
-        <div className="mt-10 grid grid-cols-1 md:grid-cols-3 auto-rows-[minmax(0,1fr)] gap-4">
-          {/* hero tile: committee */}
-          <div className="reveal card p-6 md:col-span-2 md:row-span-2 relative overflow-hidden hover:border-purple transition-colors">
-            <div aria-hidden className="lp-tile-glow" />
-            <div className="text-2xl">🧠</div>
-            <div className="font-semibold text-lg mt-2">Investment committee</div>
-            <p className="text-sm text-muted mt-1.5 max-w-md leading-snug">Five AI analysts — Research, Risk, Macro, Devil’s Advocate, Capital Allocation — argue the stock out. A chair weighs the debate and rules a score and a call, with the dissent kept on the record.</p>
-            <div className="mt-5 flex flex-wrap gap-2">
-              {["Research", "Risk", "Macro", "Devil’s Advocate", "Capital Allocation"].map((r) => (
-                <span key={r} className="chip chip-muted text-xs">{r}</span>
-              ))}
-            </div>
-            <div className="mt-5 card-2 p-4 max-w-sm">
-              <div className="flex items-center justify-between text-xs text-muted"><span>Chair’s verdict</span><span>after debate</span></div>
-              <div className="mt-1.5 flex items-center gap-3">
-                <span className="text-2xl font-bold text-gold">7<span className="text-sm text-muted">/10</span></span>
-                <span className="chip chip-gold text-xs">HOLD</span>
-                <span className="text-xs text-muted">2 dissents noted</span>
-              </div>
-            </div>
-          </div>
-
-          {[
-            { icon: "🩺", h: "Portfolio X-ray", p: "Paste holdings or upload a statement for an honest, FCF-first review — concentration, price zones, sell / trim / hold with tax notes." },
-            { icon: "💬", h: "Ask this stock", p: "A copilot that answers only from the verified analysis on the page. It will not make up a number." },
-            { icon: "📊", h: "It grades itself", p: "Every rating ever published, scored against today’s price — the losers included. No cherry‑picking." },
-            { icon: "⏱️", h: "Time machine", p: "Scrub the AI’s past ratings across the price chart and see the return since each call." },
-            { icon: "🔎", h: "Screener & compare", p: "Filter the universe by rating, free cash flow, growth and value; compare up to five names side by side." },
-          ].map((f, i) => (
-            <div key={f.h} className="reveal card p-5 hover:border-purple transition-colors" style={{ transitionDelay: `${(i % 3) * 60}ms` }}>
-              <div className="text-2xl" aria-hidden>{f.icon}</div>
-              <div className="font-semibold mt-2">{f.h}</div>
-              <p className="text-sm text-muted mt-1.5 leading-snug">{f.p}</p>
+        <div className="grid gap-4 sm:grid-cols-3 mt-10">
+          {PROBLEMS.map((p, i) => (
+            <div key={p.h} className="reveal card p-5" style={{ transitionDelay: `${i * 70}ms` }}>
+              <div className="text-2xl" aria-hidden>{p.icon}</div>
+              <div className="font-semibold mt-2">{p.h}</div>
+              <p className="text-sm text-muted mt-1.5 leading-snug">{p.p}</p>
             </div>
           ))}
         </div>
+        <p className="reveal text-center text-muted mt-10 text-lg">So we built the opposite — <span className="text-text font-medium">research you can actually check.</span></p>
       </section>
 
-      {/* ---------- scrolly: assemble an analysis ---------- */}
-      <section ref={scrollyRef} className="lp-scrolly border-y border-line" style={{ height: "300vh" }}>
+      {/* ---------- mechanism / how it works ---------- */}
+      <section className="border-y border-line bg-card/40 lp-grid-bg">
+        <div className="mx-auto max-w-6xl px-4 py-20 md:py-24">
+          <div className="reveal max-w-2xl">
+            <div className="text-xs uppercase tracking-[0.18em] text-gold">Why you can trust it</div>
+            <h2 className="text-2xl md:text-4xl font-semibold tracking-tight mt-2">Honest by design.</h2>
+          </div>
+          <div className="mt-12 grid gap-8 sm:grid-cols-2 lg:grid-cols-4">
+            {STEPS.map((s, i) => (
+              <div key={s.n} className="reveal relative" style={{ transitionDelay: `${i * 80}ms` }}>
+                <div className="text-sm font-mono text-gold/80">{s.n}</div>
+                <div className="mt-2 h-px w-full bg-gradient-to-r from-gold/50 to-transparent" />
+                <div className="font-semibold mt-4">{s.h}</div>
+                <p className="text-sm text-muted mt-1.5 leading-snug">{s.p}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ---------- proof: assemble an analysis (scroll) ---------- */}
+      <section ref={scrollyRef} className="lp-scrolly border-b border-line" style={{ height: "300vh" }}>
         <div className="lp-stage">
           <div className="mx-auto max-w-5xl px-4 w-full grid md:grid-cols-[1fr_1.1fr] gap-10 items-center">
-            {/* narrative */}
             <div>
               <div className="text-xs uppercase tracking-[0.18em] text-gold">Watch it work</div>
               <h2 className="text-2xl md:text-4xl font-semibold tracking-tight mt-2 leading-tight">An analysis, taking shape.</h2>
@@ -312,11 +310,9 @@ export function Landing() {
               <div className="lp-step-caption text-xs text-muted mt-2">{SCROLLY_STEPS[0]}</div>
             </div>
 
-            {/* assembling dashboard (no numbers — illustrative) */}
             <div className="relative">
               <div aria-hidden className="lp-card-glow" />
               <div className="card lp-glass p-5 relative">
-                {/* 1 · ticker + analyzing */}
                 <div className="lp-appear flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <span className="chip chip-muted text-xs">▲ TICKER</span>
@@ -325,7 +321,6 @@ export function Landing() {
                   <span className="chip chip-purple text-xs">◐ Analyzing</span>
                 </div>
 
-                {/* 2 · reading financials — skeleton rows + KPI tiles */}
                 <div className="lp-appear mt-4">
                   <div className="space-y-2">
                     <div className="skeleton h-3 w-3/4" />
@@ -342,7 +337,6 @@ export function Landing() {
                   </div>
                 </div>
 
-                {/* 3 · chart draws in */}
                 <div className="lp-appear mt-4">
                   <svg viewBox="0 0 320 90" className="w-full h-20" preserveAspectRatio="none" aria-hidden>
                     <defs>
@@ -356,7 +350,6 @@ export function Landing() {
                   </svg>
                 </div>
 
-                {/* 4 · FCF verdict + bull/bear */}
                 <div className="lp-appear mt-4">
                   <div className="card-2 p-3 flex items-center gap-2 border-l-2 border-l-green">
                     <span className="text-lg">✅</span>
@@ -372,7 +365,6 @@ export function Landing() {
                   </div>
                 </div>
 
-                {/* 5 · committee + rating + verdict */}
                 <div className="lp-appear mt-4">
                   <div className="flex items-center gap-3">
                     <div className="flex -space-x-2">
@@ -397,37 +389,78 @@ export function Landing() {
         </div>
       </section>
 
-      {/* ---------- how it works ---------- */}
-      <section className="border-y border-line bg-card/40 lp-grid-bg">
-        <div className="mx-auto max-w-6xl px-4 py-20 md:py-24">
-          <div className="reveal max-w-2xl">
-            <div className="text-xs uppercase tracking-[0.18em] text-gold">How it works</div>
-            <h2 className="text-2xl md:text-4xl font-semibold tracking-tight mt-2">Honest by design.</h2>
-          </div>
-          <div className="mt-12 grid gap-8 sm:grid-cols-2 lg:grid-cols-4">
-            {STEPS.map((s, i) => (
-              <div key={s.n} className="reveal relative" style={{ transitionDelay: `${i * 80}ms` }}>
-                <div className="text-sm font-mono text-gold/80">{s.n}</div>
-                <div className="mt-2 h-px w-full bg-gradient-to-r from-gold/50 to-transparent" />
-                <div className="font-semibold mt-4">{s.h}</div>
-                <p className="text-sm text-muted mt-1.5 leading-snug">{s.p}</p>
+      {/* ---------- value stack ---------- */}
+      <section className="mx-auto max-w-6xl px-4 py-20 md:py-24">
+        <div className="reveal max-w-2xl">
+          <div className="text-xs uppercase tracking-[0.18em] text-gold">Everything you get</div>
+          <h2 className="text-2xl md:text-4xl font-semibold tracking-tight mt-2">A research desk in your browser — free.</h2>
+          <p className="text-muted mt-3">Six tools that work together, not a single chat box. No add-ons, no upsells.</p>
+        </div>
+
+        <div className="mt-10 grid grid-cols-1 md:grid-cols-3 auto-rows-[minmax(0,1fr)] gap-4">
+          <div className="reveal card p-6 md:col-span-2 md:row-span-2 relative overflow-hidden hover:border-purple transition-colors">
+            <div aria-hidden className="lp-tile-glow" />
+            <div className="text-2xl">🧠</div>
+            <div className="font-semibold text-lg mt-2">Investment committee</div>
+            <p className="text-sm text-muted mt-1.5 max-w-md leading-snug">Five AI analysts — Research, Risk, Macro, Devil’s Advocate, Capital Allocation — argue the stock out. A chair weighs the debate and rules a score and a call, with the dissent kept on the record.</p>
+            <div className="mt-5 flex flex-wrap gap-2">
+              {["Research", "Risk", "Macro", "Devil’s Advocate", "Capital Allocation"].map((r) => (
+                <span key={r} className="chip chip-muted text-xs">{r}</span>
+              ))}
+            </div>
+            <div className="mt-5 card-2 p-4 max-w-sm">
+              <div className="flex items-center justify-between text-xs text-muted"><span>Chair’s verdict</span><span>after debate</span></div>
+              <div className="mt-1.5 flex items-center gap-3">
+                <span className="text-2xl font-bold text-gold">7<span className="text-sm text-muted">/10</span></span>
+                <span className="chip chip-gold text-xs">HOLD</span>
+                <span className="text-xs text-muted">2 dissents noted</span>
               </div>
-            ))}
+            </div>
           </div>
-          <div className="reveal mt-10">
-            <Link href="/how-it-works" className="text-purple no-underline hover:underline text-sm">Read the full method →</Link>
-          </div>
+
+          {FEATURES.map((f, i) => (
+            <div key={f.h} className="reveal card p-5 hover:border-purple transition-colors" style={{ transitionDelay: `${(i % 3) * 60}ms` }}>
+              <div className="text-2xl" aria-hidden>{f.icon}</div>
+              <div className="font-semibold mt-2">{f.h}</div>
+              <p className="text-sm text-muted mt-1.5 leading-snug">{f.p}</p>
+            </div>
+          ))}
+        </div>
+
+        <div className="reveal mt-10 text-center">
+          <Link href="/signin" className="btn btn-primary no-underline px-6 py-3 lp-shine">{CTA_PRIMARY}</Link>
+          <div className="text-xs text-muted mt-3">Free · no credit card · cancel nothing, there’s nothing to cancel</div>
         </div>
       </section>
 
-      {/* ---------- honesty highlight ---------- */}
+      {/* ---------- guarantee / risk reversal ---------- */}
       <section className="mx-auto max-w-6xl px-4 py-20 md:py-24">
         <div className="reveal card lp-glass p-8 md:p-14 text-center lp-gradient relative overflow-hidden">
           <div aria-hidden className="lp-tile-glow" />
-          <div className="text-2xl md:text-4xl font-semibold tracking-tight max-w-3xl mx-auto leading-tight relative">
+          <div className="text-xs uppercase tracking-[0.18em] text-gold relative">Our promise</div>
+          <div className="mt-3 text-2xl md:text-4xl font-semibold tracking-tight max-w-3xl mx-auto leading-tight relative">
             “Every number carries its source and date. <span className="lp-title-grad">Unverifiable is unverified</span> — never invented.”
           </div>
-          <p className="text-muted mt-5 max-w-xl mx-auto relative">A verifier reconciles every figure before an analysis is published, and the app keeps a public track record of whether its calls were right.</p>
+          <p className="text-muted mt-5 max-w-xl mx-auto relative">A verifier reconciles every figure before an analysis ships, and the app grades its own calls in public. If it can’t back a number, it won’t show one.</p>
+        </div>
+      </section>
+
+      {/* ---------- FAQ / objections ---------- */}
+      <section className="mx-auto max-w-3xl px-4 py-20 md:py-24">
+        <div className="reveal text-center">
+          <div className="text-xs uppercase tracking-[0.18em] text-gold">Questions</div>
+          <h2 className="text-2xl md:text-4xl font-semibold tracking-tight mt-2">Before you ask.</h2>
+        </div>
+        <div className="mt-8 space-y-3">
+          {FAQ.map(({ q, a }) => (
+            <details key={q} className="reveal card p-5 lp-faq">
+              <summary className="font-semibold cursor-pointer flex items-center justify-between gap-4">
+                {q}
+                <span className="lp-faq-plus text-muted text-lg leading-none">+</span>
+              </summary>
+              <p className="text-sm text-muted mt-3 leading-relaxed">{a}</p>
+            </details>
+          ))}
         </div>
       </section>
 
@@ -439,10 +472,15 @@ export function Landing() {
         </div>
         <div className="mx-auto max-w-6xl px-4 py-24 text-center relative">
           <h2 className="reveal text-3xl md:text-5xl font-semibold tracking-tight">Start with a stock you own.</h2>
-          <p className="reveal text-muted mt-4 max-w-md mx-auto">Free account, no card. Search a ticker, or X‑ray your whole portfolio in one click.</p>
+          <p className="reveal text-muted mt-4 max-w-md mx-auto">Run your first analysis in about a minute. See exactly what it gets right — and where it says it’s unsure.</p>
           <div className="reveal mt-8 flex flex-wrap gap-3 justify-center">
-            <Link href="/signin" className="btn btn-primary no-underline px-6 py-3 lp-shine">Get started — free</Link>
+            <Link href="/signin" className="btn btn-primary no-underline px-6 py-3 lp-shine">{CTA_PRIMARY}</Link>
             <Link href="/examples" className="btn no-underline px-6 py-3">See a live example →</Link>
+          </div>
+          <div className="reveal mt-5 flex flex-wrap gap-x-5 gap-y-1 justify-center text-xs text-muted">
+            <span className="lp-tick">Free</span>
+            <span className="lp-tick">No credit card</span>
+            <span className="lp-tick">Not financial advice</span>
           </div>
         </div>
       </section>
@@ -462,3 +500,19 @@ export function Landing() {
     </div>
   );
 }
+
+/** A slice of the coverage universe for the scrolling ticker — illustrative, not live quotes. */
+const COVERAGE: [string, string, string][] = [
+  ["NVDA", "8/10", "✅"],
+  ["AAPL", "7/10", "✅"],
+  ["MSFT", "8/10", "✅"],
+  ["GOOGL", "7/10", "✅"],
+  ["META", "7/10", "✅"],
+  ["AMZN", "6/10", "⚠️"],
+  ["COST", "6/10", "✅"],
+  ["TSLA", "4/10", "⚠️"],
+  ["AMD", "6/10", "✅"],
+  ["NFLX", "7/10", "✅"],
+  ["JPM", "7/10", "✅"],
+  ["V", "8/10", "✅"],
+];
