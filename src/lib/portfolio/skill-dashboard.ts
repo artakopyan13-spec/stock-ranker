@@ -176,9 +176,15 @@ export function buildSkillDashboard(d: SkillData): string {
     const tip = esc(ks.map((k) => `${k} — ${GL[k]}`).join("  •  "));
     return `${label}<span class="q ${cls}" tabindex="0" role="note" aria-label="${tip}" data-tip="${tip}">?</span>`;
   };
+  const sanitize = (t: string): string =>
+    t
+      .replace(/<\s*(script|style|iframe|object|embed|link|meta|form)\b[^>]*>[\s\S]*?<\s*\/\s*\1\s*>/gi, "")
+      .replace(/<\s*(script|style|iframe|object|embed|link|meta|form)\b[^>]*\/?>/gi, "")
+      .replace(/\son\w+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, "")
+      .replace(/(href|src)\s*=\s*(["']?)\s*javascript:[^"'>\s]*/gi, "$1=$2#");
   const rich = (text: string | null | undefined): string => {
     if (text === null || text === undefined) return "";
-    return String(text).replace(/\{\{\?([^}]+)\}\}/g, (_m, g1: string) => {
+    return sanitize(String(text)).replace(/\{\{\?([^}]+)\}\}/g, (_m, g1: string) => {
       const [term, shown] = g1.includes("|") ? [g1.slice(0, g1.indexOf("|")), g1.slice(g1.indexOf("|") + 1)] : [g1, ""];
       return (shown || term).trim() + qmark(term.trim(), "i");
     });

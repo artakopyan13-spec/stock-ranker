@@ -2,11 +2,14 @@ import type { NextRequest } from "next/server";
 import { searchSymbols } from "@/lib/data";
 import { db } from "@/lib/db";
 import { env } from "@/lib/env";
+import { readGuard } from "@/lib/request";
 
 export const dynamic = "force-dynamic";
 
 /** GET /api/search?q=nvidia — symbol lookup for the search box (same-origin). */
 export async function GET(req: NextRequest): Promise<Response> {
+  const guard = await readGuard(req);
+  if (guard) return guard;
   const q = (req.nextUrl.searchParams.get("q") ?? "").trim();
   if (!q) return Response.json({ matches: [] });
   if (env().DEMO_MODE) {

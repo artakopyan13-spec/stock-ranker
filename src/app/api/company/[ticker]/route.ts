@@ -2,12 +2,15 @@ import type { NextRequest } from "next/server";
 import { getCompanyData } from "@/lib/data/company-source";
 import { isValidSymbol } from "@/lib/data";
 import { toApiError } from "@/lib/api-errors";
+import { readGuard } from "@/lib/request";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
 /** Financials + overview + valuation history for a ticker. Cached; never triggers a Claude call. */
-export async function GET(_req: NextRequest, ctx: RouteContext<"/api/company/[ticker]">): Promise<Response> {
+export async function GET(req: NextRequest, ctx: RouteContext<"/api/company/[ticker]">): Promise<Response> {
+  const guard = await readGuard(req);
+  if (guard) return guard;
   const { ticker } = await ctx.params;
   if (!isValidSymbol(ticker)) return Response.json({ error: "Invalid ticker" }, { status: 400 });
   try {

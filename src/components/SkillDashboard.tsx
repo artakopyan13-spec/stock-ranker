@@ -39,6 +39,7 @@ export function SkillDashboard({ review, holdings, newCashUsd, generatedAt }: { 
     return () => window.removeEventListener("message", onMsg);
   }, []);
 
+  if (!src) return <div className="card p-6 text-sm text-muted">Rendering your dashboard…</div>;
   return (
     <iframe
       ref={ref}

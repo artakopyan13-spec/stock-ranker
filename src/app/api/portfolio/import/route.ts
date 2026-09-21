@@ -18,8 +18,8 @@ const IMAGE_TYPES = ["image/png", "image/jpeg", "image/webp", "image/gif"] as co
 
 const Body = z.object({
   kind: z.enum(["image", "pdf", "csv"]),
-  mediaType: z.string().optional(),
-  dataBase64: z.string().optional(), // for image/pdf
+  mediaType: z.string().max(80).optional(),
+  dataBase64: z.string().max(9_000_000).optional(), // ~6.5 MB file cap for image/pdf
   text: z.string().max(2_000_000).optional(), // for csv
 });
 
