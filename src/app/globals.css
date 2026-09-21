@@ -1,71 +1,73 @@
 @import "tailwindcss";
 
-/* Dark palette (default) — from stock-analysis/references/html_style_guide.md */
+/* Dark palette (default) — indigo/iris, a softer sibling of the landing's
+   deep-indigo look so the signed-in app is friendly to work in.
+   Accent role (`--gold`) is now iris purple #6E6DFF. */
 :root {
-  --bg: #0e1116;
-  --card: #161b22;
-  --card-2: #1c222b;
-  --line: #262d38;
-  --text: #e6edf3;
-  --muted: #8b949e;
-  --dim: #5f6873;
-  --green: #7c9a82;
-  --red: #b07a6e;
-  --gold: #c9a35c;
-  --purple: #8e86d8;
-  --green-bg: rgba(124, 154, 130, 0.14);
-  --red-bg: rgba(176, 122, 110, 0.16);
-  --gold-bg: rgba(201, 163, 92, 0.14);
-  --purple-bg: rgba(142, 134, 216, 0.14);
-  --pop: #0b0e13; /* popovers / tooltips */
-  --input-bg: #0b0e13;
-  --skeleton-mid: #232a35;
-  --on-gold: #0e1116; /* text on a gold button */
+  --bg: #16182c;
+  --card: #1e2038;
+  --card-2: #262845;
+  --line: #313450;
+  --text: #eaedf7;
+  --muted: #9ca0be;
+  --dim: #6c7092;
+  --green: #43c089;
+  --red: #e5697a;
+  --gold: #6e6dff;
+  --purple: #9c90ff;
+  --green-bg: rgba(67, 192, 137, 0.14);
+  --red-bg: rgba(229, 105, 122, 0.15);
+  --gold-bg: rgba(110, 109, 255, 0.15);
+  --purple-bg: rgba(156, 144, 255, 0.15);
+  --pop: #12142a; /* popovers / tooltips */
+  --input-bg: #12142a;
+  --skeleton-mid: #2b2e4c;
+  --on-gold: #ffffff; /* text on an accent button */
 }
 
 /* Light palette — warm editorial, keeps the gold accent.
    Applied when the user forces light, or the OS is light and they haven't forced dark. */
 :root[data-theme="light"] {
-  --bg: #f7f6f2;
+  --bg: #f6f7fc;
   --card: #ffffff;
-  --card-2: #efece4;
-  --line: #e2ded4;
-  --text: #1b1f24;
-  --muted: #5b6570;
-  --dim: #929aa5;
-  --green: #3f7d54;
-  --red: #a8503b;
-  --gold: #9a6f18;
-  --purple: #5a4fce;
-  --green-bg: rgba(63, 125, 84, 0.12);
-  --red-bg: rgba(168, 80, 59, 0.12);
-  --gold-bg: rgba(154, 111, 24, 0.14);
-  --purple-bg: rgba(90, 79, 206, 0.12);
+  --card-2: #eef0f8;
+  --line: #e3e5f1;
+  --text: #1b1e33;
+  --muted: #585c7e;
+  --dim: #9599b7;
+  --green: #2e9e6e;
+  --red: #d2536a;
+  --gold: #5a4fe6;
+  --purple: #6161ff;
+  --green-bg: rgba(46, 158, 110, 0.12);
+  --red-bg: rgba(210, 83, 106, 0.12);
+  --gold-bg: rgba(90, 79, 230, 0.1);
+  --purple-bg: rgba(97, 97, 255, 0.1);
   --pop: #ffffff;
   --input-bg: #ffffff;
-  --skeleton-mid: #e6e2d9;
+  --skeleton-mid: #e6e7f5;
   --on-gold: #ffffff;
 }
 @media (prefers-color-scheme: light) {
   :root:not([data-theme="dark"]) {
-    --bg: #f7f6f2;
+    --bg: #f6f7fc;
     --card: #ffffff;
-    --card-2: #efece4;
-    --line: #e2ded4;
-    --text: #1b1f24;
-    --muted: #5b6570;
-    --dim: #929aa5;
-    --green: #3f7d54;
-    --red: #a8503b;
-    --gold: #9a6f18;
-    --purple: #5a4fce;
-    --green-bg: rgba(63, 125, 84, 0.12);
-    --red-bg: rgba(168, 80, 59, 0.12);
-    --gold-bg: rgba(154, 111, 24, 0.14);
-    --purple-bg: rgba(90, 79, 206, 0.12);
+    --card-2: #eef0f8;
+    --line: #e3e5f1;
+    --text: #1b1e33;
+    --muted: #585c7e;
+    --dim: #9599b7;
+    --green: #2e9e6e;
+    --red: #d2536a;
+    --gold: #5a4fe6;
+    --purple: #6161ff;
+    --green-bg: rgba(46, 158, 110, 0.12);
+    --red-bg: rgba(210, 83, 106, 0.12);
+    --gold-bg: rgba(90, 79, 230, 0.1);
+    --purple-bg: rgba(97, 97, 255, 0.1);
     --pop: #ffffff;
     --input-bg: #ffffff;
-    --skeleton-mid: #e6e2d9;
+    --skeleton-mid: #e6e7f5;
     --on-gold: #ffffff;
   }
 }
@@ -189,11 +191,6 @@ a {
     color-scheme: light;
   }
 }
-/* keep the HOLD chip's border in the iris family within the landing */
-.lp-theme .chip-gold {
-  border-color: rgba(97, 97, 255, 0.35);
-}
-
 /* ---------- landing page ---------- */
 .reveal {
   opacity: 0;
@@ -255,12 +252,12 @@ a {
   height: 7px;
   border-radius: 50%;
   background: var(--green);
-  box-shadow: 0 0 0 0 rgba(124, 154, 130, 0.6);
+  box-shadow: 0 0 0 0 color-mix(in srgb, var(--green) 60%, transparent);
   animation: lp-ping 2.2s ease-out infinite;
 }
 @keyframes lp-ping {
-  0% { box-shadow: 0 0 0 0 rgba(124, 154, 130, 0.55); }
-  70%, 100% { box-shadow: 0 0 0 7px rgba(124, 154, 130, 0); }
+  0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--green) 55%, transparent); }
+  70%, 100% { box-shadow: 0 0 0 7px color-mix(in srgb, var(--green) 0%, transparent); }
 }
 
 /* trust ticks */
@@ -314,6 +311,30 @@ a {
   pointer-events: none;
 }
 
+/* mock dashboard tabs */
+.lp-tab {
+  padding: 2px 9px;
+  border-radius: 999px;
+  color: var(--muted);
+  border: 1px solid transparent;
+}
+.lp-tab-on {
+  background: var(--gold-bg);
+  color: var(--gold);
+  border-color: color-mix(in srgb, var(--gold) 35%, transparent);
+}
+
+/* pulsing dot at the live end of the chart */
+.lp-dot-ping {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: lp-dotping 1.9s ease-out infinite;
+}
+@keyframes lp-dotping {
+  0% { transform: scale(1); opacity: 0.6; }
+  100% { transform: scale(3.2); opacity: 0; }
+}
+
 /* rating pips grow-in */
 .lp-pip {
   transform-origin: left;
@@ -362,7 +383,8 @@ a {
 
 @media (prefers-reduced-motion: reduce) {
   .reveal { opacity: 1; transform: none; transition: none; }
-  .lp-orb, .lp-in, .lp-float-card, .lp-pip, .lp-shine::after, .lp-marquee-track, .lp-live-dot { animation: none !important; }
+  .lp-orb, .lp-in, .lp-float-card, .lp-pip, .lp-shine::after, .lp-marquee-track, .lp-live-dot, .lp-dot-ping { animation: none !important; }
+  .lp-dot-ping { opacity: 0; }
   .lp-pip { transform: none; }
   .lp-marquee-track { transform: none; }
 }
@@ -412,22 +434,22 @@ a {
 .chip-gold {
   color: var(--gold);
   background: var(--gold-bg);
-  border-color: rgba(201, 163, 92, 0.35);
+  border-color: color-mix(in srgb, var(--gold) 35%, transparent);
 }
 .chip-green {
   color: var(--green);
   background: var(--green-bg);
-  border-color: rgba(124, 154, 130, 0.35);
+  border-color: color-mix(in srgb, var(--green) 35%, transparent);
 }
 .chip-red {
   color: var(--red);
   background: var(--red-bg);
-  border-color: rgba(176, 122, 110, 0.35);
+  border-color: color-mix(in srgb, var(--red) 35%, transparent);
 }
 .chip-purple {
   color: var(--purple);
   background: var(--purple-bg);
-  border-color: rgba(142, 134, 216, 0.35);
+  border-color: color-mix(in srgb, var(--purple) 35%, transparent);
 }
 .chip-muted {
   color: var(--muted);

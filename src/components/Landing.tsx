@@ -20,13 +20,6 @@ const TICKERS: [string, string, string][] = [
   ["V", "8/10", "✅"],
 ];
 
-const STATS: [string, string][] = [
-  ["0", "invented numbers — every figure is sourced & dated"],
-  ["5", "AI analysts debate before a call is made"],
-  ["6", "research tools, not a single chat box"],
-  ["1", "rule above all: free cash flow first"],
-];
-
 const STEPS: { n: string; h: string; p: string }[] = [
   { n: "01", h: "Live data, every time", p: "Prices, multiples, free cash flow, debt and earnings dates are pulled live. An unverifiable figure is labelled “unverified” — never invented." },
   { n: "02", h: "AI judges, code counts", p: "Claude analyses the business; every number is computed by code and reconciled by a verifier before it is ever shown to you." },
@@ -103,10 +96,14 @@ export function Landing() {
             <div className="lp-float-card relative">
               <div aria-hidden className="lp-card-glow" />
               <div className="card lp-glass p-5 relative">
-                <div className="flex items-center justify-between">
+                {/* header: symbol · price · rating */}
+                <div className="flex items-start justify-between">
                   <div>
-                    <div className="text-lg font-bold tracking-tight">NVDA</div>
-                    <div className="text-xs text-muted">NVIDIA Corporation</div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-lg font-bold tracking-tight">NVDA</span>
+                      <span className="chip chip-green text-[0.62rem] py-0.5 px-2">▲ 2.4%</span>
+                    </div>
+                    <div className="text-xs text-muted mt-0.5">NVIDIA Corporation · $178.34</div>
                   </div>
                   <div className="text-right">
                     <div className="text-3xl font-bold text-gold leading-none">7<span className="text-sm text-muted">/10</span></div>
@@ -114,37 +111,63 @@ export function Landing() {
                   </div>
                 </div>
 
+                {/* rating pips */}
                 <div className="mt-3 flex gap-1">
                   {Array.from({ length: 10 }).map((_v, i) => (
                     <span key={i} className={`lp-pip flex-1 h-1.5 rounded ${i < 7 ? "bg-gold" : "bg-card2"}`} style={{ animationDelay: `${0.5 + i * 0.06}s` }} />
                   ))}
                 </div>
 
-                {/* mini sparkline */}
-                <svg viewBox="0 0 300 70" className="mt-4 w-full h-16" preserveAspectRatio="none" aria-hidden>
-                  <defs>
-                    <linearGradient id="lpspark" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="var(--gold)" stopOpacity="0.28" />
-                      <stop offset="100%" stopColor="var(--gold)" stopOpacity="0" />
-                    </linearGradient>
-                  </defs>
-                  <path d="M0 55 L40 48 L75 52 L110 38 L150 42 L190 26 L230 30 L270 16 L300 12 L300 70 L0 70 Z" fill="url(#lpspark)" />
-                  <path className="line-draw" d="M0 55 L40 48 L75 52 L110 38 L150 42 L190 26 L230 30 L270 16 L300 12" fill="none" stroke="var(--gold)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                </svg>
-
-                <div className="mt-3 card-2 p-3 flex items-center gap-2 border-l-2 border-l-green">
-                  <span className="text-lg">✅</span>
-                  <div className="text-xs"><b>Free cash flow healthy</b><div className="text-muted">$127B TTM · 42% margin</div></div>
+                {/* tabs */}
+                <div className="mt-4 flex gap-1.5 text-[0.7rem]">
+                  <span className="lp-tab lp-tab-on">Overview</span>
+                  <span className="lp-tab">Financials</span>
+                  <span className="lp-tab">Catalysts</span>
                 </div>
 
-                <dl className="mt-3 grid grid-cols-3 gap-2 text-center">
-                  {[["Fwd P/E", "13.7×"], ["FCF margin", "42%"], ["Rev growth", "+106%"]].map(([k, v]) => (
-                    <div key={k} className="card-2 p-2">
-                      <dt className="text-[0.6rem] uppercase tracking-wider text-muted">{k}</dt>
-                      <dd className="text-sm font-semibold">{v}</dd>
+                {/* price chart */}
+                <div className="mt-3 relative">
+                  <svg viewBox="0 0 320 96" className="w-full h-24" preserveAspectRatio="none" aria-hidden>
+                    <defs>
+                      <linearGradient id="lpspark" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="var(--gold)" stopOpacity="0.3" />
+                        <stop offset="100%" stopColor="var(--gold)" stopOpacity="0" />
+                      </linearGradient>
+                    </defs>
+                    <path d="M0 80 L26 72 L52 78 L78 58 L104 66 L130 48 L156 56 L182 38 L208 44 L234 28 L260 33 L286 20 L312 12 L320 12 L320 96 L0 96 Z" fill="url(#lpspark)" />
+                    <path className="line-draw" d="M0 80 L26 72 L52 78 L78 58 L104 66 L130 48 L156 56 L182 38 L208 44 L234 28 L260 33 L286 20 L312 12" fill="none" stroke="var(--gold)" strokeWidth="2.25" strokeLinecap="round" strokeLinejoin="round" />
+                    <circle className="lp-dot-ping" cx="312" cy="12" r="3.5" fill="var(--gold)" />
+                    <circle cx="312" cy="12" r="3.5" fill="var(--gold)" />
+                  </svg>
+                  <div className="flex justify-between text-[0.58rem] text-dim mt-0.5"><span>12M ago</span><span>today</span></div>
+                </div>
+
+                {/* FCF verdict */}
+                <div className="mt-3 card-2 p-3 flex items-center gap-2 border-l-2 border-l-green">
+                  <span className="text-lg">✅</span>
+                  <div className="text-xs"><b>Free cash flow healthy</b><div className="text-muted">$127B TTM · 42% margin · +18% YoY</div></div>
+                </div>
+
+                {/* KPI grid */}
+                <dl className="mt-3 grid grid-cols-4 gap-2 text-center">
+                  {([["Fwd P/E", "13.7×", ""], ["FCF margin", "42%", "up"], ["Rev growth", "+106%", "up"], ["Net cash", "$26B", "up"]] as const).map(([k, v, t], i) => (
+                    <div key={k} className="card-2 p-2 fade-up" style={{ animationDelay: `${0.9 + i * 0.08}s` }}>
+                      <dt className="text-[0.55rem] uppercase tracking-wider text-muted">{k}</dt>
+                      <dd className="text-sm font-semibold flex items-center justify-center gap-0.5">
+                        {v}{t === "up" && <span className="text-green text-[0.6rem]">▲</span>}
+                      </dd>
                     </div>
                   ))}
                 </dl>
+
+                {/* bull vs bear */}
+                <div className="mt-3">
+                  <div className="flex justify-between text-[0.58rem] text-muted mb-1"><span>Bull case 62%</span><span>38% Bear</span></div>
+                  <div className="h-1.5 rounded-full overflow-hidden flex bg-card2">
+                    <span className="bg-green" style={{ width: "62%" }} />
+                    <span className="bg-red" style={{ width: "38%" }} />
+                  </div>
+                </div>
 
                 <div className="mt-3 text-[0.6rem] text-dim">Every figure carries its source &amp; date · illustrative</div>
               </div>
@@ -167,18 +190,6 @@ export function Landing() {
           </div>
           <div className="pointer-events-none absolute inset-y-0 left-0 w-16 lp-fade-l" />
           <div className="pointer-events-none absolute inset-y-0 right-0 w-16 lp-fade-r" />
-        </div>
-      </section>
-
-      {/* ---------- stats band ---------- */}
-      <section className="border-b border-line">
-        <div className="mx-auto max-w-6xl px-4 py-12 grid grid-cols-2 lg:grid-cols-4 gap-4">
-          {STATS.map(([n, label], i) => (
-            <div key={label} className="reveal" style={{ transitionDelay: `${i * 70}ms` }}>
-              <div className="text-4xl font-semibold text-gold tracking-tight">{n}</div>
-              <div className="text-xs text-muted mt-1 leading-snug">{label}</div>
-            </div>
-          ))}
         </div>
       </section>
 
