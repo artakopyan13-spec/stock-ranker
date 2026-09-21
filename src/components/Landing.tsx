@@ -50,7 +50,7 @@ export function Landing() {
   }, []);
 
   return (
-    <div className="min-h-full flex flex-col overflow-x-hidden">
+    <div className="lp-theme min-h-full flex flex-col overflow-x-hidden">
       {/* ---------- header ---------- */}
       <header className="sticky top-0 z-50 bg-bg/70 backdrop-blur-xl border-b border-line/70">
         <div className="mx-auto max-w-6xl px-4 h-14 flex items-center justify-between gap-4">

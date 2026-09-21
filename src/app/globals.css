@@ -117,6 +117,83 @@ a {
   display: none;
 }
 
+/* ---------- landing page ----------
+   Landing-only palette, inspired by the monday.com collection frame the user chose:
+   deep-indigo base + iris-purple (#6161FF) accent. Scoped to `.lp-theme` so the
+   signed-in app keeps its own gold-on-near-black tokens untouched. */
+.lp-theme {
+  --bg: #0e0f38;
+  --card: #191b57;
+  --card-2: #242678;
+  --line: #2d2f80;
+  --text: #eef0ff;
+  --muted: #a9abe0;
+  --dim: #6f71b4;
+  --green: #00c875;
+  --red: #e2445c;
+  --gold: #6161ff; /* accent role → iris purple */
+  --purple: #9b8cff; /* secondary lavender for gradients/orbs */
+  --green-bg: rgba(0, 200, 117, 0.16);
+  --red-bg: rgba(226, 68, 92, 0.16);
+  --gold-bg: rgba(97, 97, 255, 0.16);
+  --purple-bg: rgba(155, 140, 255, 0.16);
+  --pop: #0b0c30;
+  --input-bg: #14163f;
+  --skeleton-mid: #2a2c6e;
+  --on-gold: #ffffff;
+  color-scheme: dark;
+}
+:root[data-theme="light"] .lp-theme {
+  --bg: #f5f6fc;
+  --card: #ffffff;
+  --card-2: #eeeffa;
+  --line: #e1e3f5;
+  --text: #14153b;
+  --muted: #5a5c86;
+  --dim: #9a9cc0;
+  --green: #00a862;
+  --red: #d93b54;
+  --gold: #5a4fe6;
+  --purple: #6161ff;
+  --green-bg: rgba(0, 168, 98, 0.12);
+  --red-bg: rgba(217, 59, 84, 0.12);
+  --gold-bg: rgba(90, 79, 230, 0.1);
+  --purple-bg: rgba(97, 97, 255, 0.1);
+  --pop: #ffffff;
+  --input-bg: #ffffff;
+  --skeleton-mid: #e6e7f5;
+  --on-gold: #ffffff;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) .lp-theme {
+    --bg: #f5f6fc;
+    --card: #ffffff;
+    --card-2: #eeeffa;
+    --line: #e1e3f5;
+    --text: #14153b;
+    --muted: #5a5c86;
+    --dim: #9a9cc0;
+    --green: #00a862;
+    --red: #d93b54;
+    --gold: #5a4fe6;
+    --purple: #6161ff;
+    --green-bg: rgba(0, 168, 98, 0.12);
+    --red-bg: rgba(217, 59, 84, 0.12);
+    --gold-bg: rgba(90, 79, 230, 0.1);
+    --purple-bg: rgba(97, 97, 255, 0.1);
+    --pop: #ffffff;
+    --input-bg: #ffffff;
+    --skeleton-mid: #e6e7f5;
+    --on-gold: #ffffff;
+    color-scheme: light;
+  }
+}
+/* keep the HOLD chip's border in the iris family within the landing */
+.lp-theme .chip-gold {
+  border-color: rgba(97, 97, 255, 0.35);
+}
+
 /* ---------- landing page ---------- */
 .reveal {
   opacity: 0;
@@ -160,9 +237,9 @@ a {
 }
 .lp-gradient {
   background:
-    radial-gradient(1000px 460px at 82% -8%, rgba(142, 134, 216, 0.22), transparent 60%),
-    radial-gradient(900px 420px at 12% 4%, rgba(90, 200, 200, 0.16), transparent 60%),
-    radial-gradient(700px 500px at 60% 100%, rgba(201, 163, 92, 0.12), transparent 60%);
+    radial-gradient(1000px 460px at 82% -8%, rgba(97, 97, 255, 0.26), transparent 60%),
+    radial-gradient(900px 420px at 12% 4%, rgba(34, 211, 238, 0.14), transparent 60%),
+    radial-gradient(700px 500px at 60% 100%, rgba(155, 140, 255, 0.14), transparent 60%);
 }
 /* gradient headline accent */
 .lp-title-grad {
@@ -223,8 +300,8 @@ a {
   position: absolute;
   inset: -14px;
   border-radius: 24px;
-  background: radial-gradient(60% 60% at 60% 20%, rgba(201, 163, 92, 0.28), transparent 70%),
-    radial-gradient(50% 50% at 20% 90%, rgba(142, 134, 216, 0.22), transparent 70%);
+  background: radial-gradient(60% 60% at 60% 20%, rgba(97, 97, 255, 0.34), transparent 70%),
+    radial-gradient(50% 50% at 20% 90%, rgba(34, 211, 238, 0.2), transparent 70%);
   filter: blur(24px);
   z-index: 0;
 }
@@ -234,7 +311,7 @@ a {
   right: -20%;
   width: 60%;
   height: 120%;
-  background: radial-gradient(circle, rgba(201, 163, 92, 0.14), transparent 70%);
+  background: radial-gradient(circle, rgba(97, 97, 255, 0.16), transparent 70%);
   pointer-events: none;
 }
 
