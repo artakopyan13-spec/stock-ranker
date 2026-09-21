@@ -266,22 +266,21 @@ a {
 /* trust ticks */
 .lp-tick::before { content: "✓"; color: var(--gold); margin-right: 0.35rem; }
 
-/* subtle grid backdrop */
+/* soft ambient backdrop (no grid) — a faint glow instead of squares */
 .lp-grid-bg {
-  background-image:
-    linear-gradient(var(--line) 1px, transparent 1px),
-    linear-gradient(90deg, var(--line) 1px, transparent 1px);
-  background-size: 44px 44px;
-  background-position: center;
+  position: relative;
 }
-.lp-grid-bg { position: relative; }
-.lp-grid-bg > * { position: relative; z-index: 1; }
+.lp-grid-bg > * {
+  position: relative;
+  z-index: 1;
+}
 .lp-grid-bg::before {
   content: "";
   position: absolute;
   inset: 0;
-  background: radial-gradient(70% 60% at 50% 40%, transparent 30%, var(--bg) 100%);
+  background: radial-gradient(120% 90% at 50% -10%, color-mix(in srgb, var(--gold) 8%, transparent), transparent 60%);
   z-index: 0;
+  pointer-events: none;
 }
 
 /* frosted glass surface */
