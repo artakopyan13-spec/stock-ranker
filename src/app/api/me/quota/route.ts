@@ -14,6 +14,7 @@ export async function GET(): Promise<Response> {
     userAnalysesToday(user.id),
     db().user.findUnique({ where: { id: user.id }, select: { dailyQuota: true } }),
   ]);
+  if (user.role === "admin") return Response.json({ signedIn: true, used, unlimited: true });
   const quota = row?.dailyQuota ?? limits.freeDailyFresh;
   return Response.json({ signedIn: true, used, quota, remaining: Math.max(0, quota - used) });
 }

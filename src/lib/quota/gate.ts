@@ -36,7 +36,7 @@ export async function gateFreshAnalysis(input: GateInput): Promise<GateResult> {
     return { allow: false, reason: "login_required", message: "Sign in to run a fresh analysis. Cached analyses are free to view." };
   }
 
-  const user = await db().user.findUnique({ where: { id: input.userId }, select: { banned: true, dailyQuota: true } });
+  const user = await db().user.findUnique({ where: { id: input.userId }, select: { banned: true, dailyQuota: true, role: true } });
   if (!user) return { allow: false, reason: "login_required", message: "Please sign in again." };
   if (user.banned) return { allow: false, reason: "banned", message: "Your account is suspended." };
 
@@ -57,7 +57,10 @@ export async function gateFreshAnalysis(input: GateInput): Promise<GateResult> {
     return { allow: false, reason: "global_cap", message: "Today's global analysis limit is reached. Showing cached results; fresh runs resume tomorrow." };
   }
 
-  // Per-user daily quota.
+  // Per-user daily quota. Admins are exempt (still bounded by the global spend ceiling above).
+  if (user.role === "admin") {
+    return { allow: true, userId: input.userId, remainingToday: 9999 };
+  }
   const quota = user.dailyQuota ?? limits.freeDailyFresh;
   const used = await userAnalysesToday(input.userId, now);
   if (used >= quota) {
