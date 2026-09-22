@@ -56,6 +56,13 @@ export async function doSignOut(): Promise<void> {
   await signOut({ redirectTo: "/" });
 }
 
+/** The one sign-in: email + nickname, no verification. */
+export async function profileSignIn(formData: FormData): Promise<void> {
+  const email = normalizeEmail(formData.get("email"));
+  const name = String(formData.get("name") ?? "").trim();
+  await signIn("profile", { email, name, redirectTo: "/" });
+}
+
 /** Save the welcome/onboarding answers, then continue into the app. */
 export async function completeOnboarding(formData: FormData): Promise<void> {
   const user = await currentUser();

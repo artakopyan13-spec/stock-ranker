@@ -5,7 +5,7 @@ import Credentials from "next-auth/providers/credentials";
 import { PrismaAdapter } from "@auth/prisma-adapter";
 import { db } from "@/lib/db";
 import { env } from "@/lib/env";
-import { normalizeEmail, verifyEmailCode } from "@/lib/auth/otp";
+import { normalizeEmail, isValidEmail } from "@/lib/auth/otp";
 
 declare module "next-auth" {
   interface Session {
@@ -76,21 +76,26 @@ if (e.ACCESS_CODE) {
 }
 
 {
-  // The one sign-in method: passwordless email — request a 6-digit code, then verify it.
+  // The one sign-in method: email + a nickname, no verification. Captures the email
+  // for the admin and creates/updates the user, then onboarding collects the answers.
   providers.push(
     Credentials({
-      id: "email-code",
-      name: "Email code",
-      credentials: { email: { label: "Email", type: "email" }, code: { label: "Code", type: "text" } },
+      id: "profile",
+      name: "Email & nickname",
+      credentials: { email: { label: "Email", type: "email" }, name: { label: "Nickname", type: "text" } },
       async authorize(creds) {
         const email = normalizeEmail(creds?.email);
-        const code = typeof creds?.code === "string" ? creds.code.trim() : "";
-        if (!(await verifyEmailCode(email, code))) return null;
+        if (!isValidEmail(email)) return null;
+        const nickname = typeof creds?.name === "string" ? creds.name.trim().slice(0, 40) : "";
         const user = await db().user.upsert({
           where: { email },
-          create: { email, name: email.split("@")[0], role: roleFor(email), emailVerified: new Date() },
-          update: { role: roleFor(email), emailVerified: new Date() },
+          create: { email, name: nickname || email.split("@")[0], role: roleFor(email), emailVerified: new Date() },
+          update: { role: roleFor(email), ...(nickname ? { name: nickname } : {}) },
         });
+        // Capture the email for the admin (deduplicated), marked as signed-in.
+        await db()
+          .emailLead.upsert({ where: { email }, create: { email, verifiedAt: new Date() }, update: { verifiedAt: new Date(), requests: { increment: 1 } } })
+          .catch(() => {});
         return { id: user.id, email: user.email, name: user.name, role: user.role };
       },
     }),
