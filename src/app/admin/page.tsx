@@ -22,6 +22,7 @@ export default async function AdminPage() {
         <nav className="flex gap-3 text-sm text-muted">
           <Link href="/admin/costs">Costs</Link>
           <Link href="/admin/users">Users</Link>
+          <Link href="/admin/emails">Emails</Link>
         </nav>
       </div>
 

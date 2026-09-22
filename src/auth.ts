@@ -75,8 +75,8 @@ if (e.ACCESS_CODE) {
   );
 }
 
-if (e.EMAIL_CODE_LOGIN) {
-  // Passwordless email sign-in: the user requests a 6-digit code, then signs in with it.
+{
+  // The one sign-in method: passwordless email — request a 6-digit code, then verify it.
   providers.push(
     Credentials({
       id: "email-code",

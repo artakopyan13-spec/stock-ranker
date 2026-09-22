@@ -49,6 +49,11 @@ export async function requestEmailCode(email: string): Promise<RequestCodeResult
     update: { codeHash, expiresAt, attempts: 0, createdAt: new Date() },
   });
 
+  // Capture the email for the admin (deduplicated — one row per email).
+  await prisma.emailLead
+    .upsert({ where: { email }, create: { email }, update: { requests: { increment: 1 } } })
+    .catch(() => {});
+
   const subject = "Your Stock Ranker sign-in code";
   const text = `Your Stock Ranker sign-in code is ${code}. It expires in 10 minutes. If you didn't request this, you can ignore this email.`;
   const html = codeEmailHtml(code);
@@ -76,6 +81,7 @@ export async function verifyEmailCode(email: string, code: string): Promise<bool
   }
 
   await prisma.emailCode.delete({ where: { email } }).catch(() => {});
+  await prisma.emailLead.update({ where: { email }, data: { verifiedAt: new Date() } }).catch(() => {});
   return true;
 }
 

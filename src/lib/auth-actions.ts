@@ -1,7 +1,9 @@
 "use server";
 
+import { redirect } from "next/navigation";
 import { AuthError } from "next-auth";
-import { signIn, signOut } from "@/auth";
+import { signIn, signOut, currentUser } from "@/auth";
+import { db } from "@/lib/db";
 import { normalizeEmail, requestEmailCode } from "@/lib/auth/otp";
 
 export type EmailCodeState = { step: "email" | "code"; email: string; error?: string; notice?: string; devCode?: string };
@@ -52,4 +54,18 @@ export async function codeSignIn(formData: FormData): Promise<void> {
 
 export async function doSignOut(): Promise<void> {
   await signOut({ redirectTo: "/" });
+}
+
+/** Save the welcome/onboarding answers, then continue into the app. */
+export async function completeOnboarding(formData: FormData): Promise<void> {
+  const user = await currentUser();
+  if (!user) redirect("/signin");
+  const clip = (v: FormDataEntryValue | null, max: number) => String(v ?? "").trim().slice(0, max);
+  const answers = {
+    experience: clip(formData.get("experience"), 40),
+    goal: clip(formData.get("goal"), 40),
+    source: clip(formData.get("source"), 80),
+  };
+  await db().user.update({ where: { id: user.id }, data: { onboardedAt: new Date(), onboarding: JSON.stringify(answers) } });
+  redirect("/");
 }

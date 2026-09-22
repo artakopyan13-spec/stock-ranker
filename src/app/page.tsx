@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { env } from "@/lib/env";
 import { DEMO_TICKERS } from "@/lib/demo";
@@ -19,6 +20,11 @@ export default async function Home() {
   const user = await currentUser();
   // Signed-out visitors get the marketing landing page (its own header/footer).
   if (!user && !e.DEMO_MODE) return <Landing />;
+  // First-time users complete the welcome questions before entering the app.
+  if (user && !e.DEMO_MODE) {
+    const onb = await prisma.user.findUnique({ where: { id: user.id }, select: { onboardedAt: true } });
+    if (onb && !onb.onboardedAt) redirect("/welcome");
+  }
   const [watchlists, recent] = await Promise.all([
     listWatchlists(user?.id ?? null, true),
     prisma.analysis.findMany({ where: { verified: true }, orderBy: { createdAt: "desc" }, take: 40, select: { symbol: true, rating: true, action: true, fcfVerdict: true, createdAt: true, ticker: { select: { name: true, isDemo: true } } } }),

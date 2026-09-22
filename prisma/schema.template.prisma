@@ -173,6 +173,8 @@ model User {
   banned        Boolean   @default(false)
   dailyQuota    Int?      // per-user override of FREE_DAILY_FRESH_ANALYSES
   createdAt     DateTime  @default(now())
+  onboardedAt   DateTime? // set when the user finishes the welcome questions
+  onboarding    String?   // JSON of onboarding answers
 
   accounts    Account[]
   sessions    Session[]
@@ -275,6 +277,15 @@ model EmailCode {
   expiresAt DateTime
   attempts  Int      @default(0)
   createdAt DateTime @default(now())
+}
+
+/// Every email anyone submits to sign in, deduplicated (one row per email — the @id).
+/// Persists even if they never verify, so the admin can see all captured emails.
+model EmailLead {
+  email      String    @id
+  createdAt  DateTime  @default(now())
+  verifiedAt DateTime?
+  requests   Int       @default(1)
 }
 
 /// A user's saved screener filter set.
