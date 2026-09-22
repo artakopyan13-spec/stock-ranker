@@ -90,6 +90,10 @@ export const StockData = z.object({
   /** Items from the last 7 days only. */
   news: z.array(NewsItem),
   newsSource: z.enum(["provider", "web_search", "none"]),
+
+  /** Web-searched recent context: latest reported quarter + notable developments, dated. Optional. */
+  webContext: z.string().nullable().optional(),
+  webContextAsOf: z.string().nullable().optional(),
 });
 export type StockData = z.infer<typeof StockData>;
 

@@ -32,6 +32,11 @@ const EnvSchema = z.object({
   ANALYSIS_EFFORT: z.enum(["low", "medium", "high", "xhigh", "max"]).default("medium"),
   NEWS_SEARCH_MODEL: z.string().default("claude-sonnet-5"),
   NEWS_WEB_SEARCH_FALLBACK: boolFromString,
+  /** Web-search the latest reported quarter + recent developments for each fresh analysis. Default on. */
+  EARNINGS_WEB_SEARCH: z
+    .string()
+    .optional()
+    .transform((v) => v === undefined || v === "" || v === "true" || v === "1"),
   /** Cheap model for chat/copilot/portfolio/command-bar (grounded, short answers). */
   ASSISTANT_MODEL: z.string().default("claude-haiku-4-5"),
 

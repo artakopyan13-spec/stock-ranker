@@ -9,6 +9,7 @@ import { analyzeStreaming, PROMPT_VERSION, type AnalyzeResult } from "@/lib/ai/a
 import { logUsage } from "@/lib/ai/client";
 import { gateFreshAnalysis, type DenyReason } from "@/lib/quota/gate";
 import { searchNewsViaWeb } from "@/lib/ai/news-search";
+import { searchLatestEarnings } from "@/lib/ai/earnings-search";
 import type { TokenUsage } from "@/lib/ai/pricing";
 import { detectChanges, recordChanges } from "@/lib/changes/detect";
 
@@ -80,15 +81,26 @@ export function isFresh(stored: StoredAnalysis, now = new Date()): boolean {
 /** Fetches data and runs the web-search fallback when the provider returned no news. */
 export async function loadDataForAnalysis(symbol: string, opts: { force?: boolean } = {}): Promise<StockData> {
   const { data } = await getStockData(symbol, { force: opts.force });
-  if (data.news.length === 0 && env().NEWS_WEB_SEARCH_FALLBACK && env().ANTHROPIC_API_KEY) {
+  let out = data;
+  if (out.news.length === 0 && env().NEWS_WEB_SEARCH_FALLBACK && env().ANTHROPIC_API_KEY) {
     try {
-      const items = await searchNewsViaWeb(data.symbol, data.companyName);
-      if (items.length) return { ...data, news: items, newsSource: "web_search" };
+      const items = await searchNewsViaWeb(out.symbol, out.companyName);
+      if (items.length) out = { ...out, news: items, newsSource: "web_search" };
     } catch (err) {
       console.warn(`[news-search] fallback failed for ${symbol}:`, err instanceof Error ? err.message : err);
     }
   }
-  return data;
+  // Pull the latest reported quarter + recent developments via web search so the analysis
+  // reflects earnings published after the model's training cutoff.
+  if (env().EARNINGS_WEB_SEARCH && env().ANTHROPIC_API_KEY) {
+    try {
+      const er = await searchLatestEarnings(out.symbol, out.companyName);
+      if (er) out = { ...out, webContext: er.summary, webContextAsOf: er.asOf };
+    } catch (err) {
+      console.warn(`[earnings-search] failed for ${symbol}:`, err instanceof Error ? err.message : err);
+    }
+  }
+  return out;
 }
 
 /**

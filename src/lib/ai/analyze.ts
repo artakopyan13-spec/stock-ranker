@@ -43,6 +43,9 @@ export function buildUserMessage(data: StockData, opts: Pick<AnalyzeOptions, "pr
     .replace("{{TODAY}}", today)
     .replace("{{STOCK_DATA_JSON}}", JSON.stringify(data, null, 1))
     .replace("{{PREVIOUS_TRIPWIRE}}", prev);
+  if (data.webContext) {
+    msg += `\n\nRecent web context (sourced via web search, as of ${data.webContextAsOf ?? "recent"}). Use it for recency in the summary, thesis, catalysts and rating; treat it as sourced and dated, and do not put its numbers into the numeric KPI fields:\n${data.webContext}`;
+  }
   if (opts.retryFeedback) {
     msg += `\n\nYour previous attempt failed verification. Fix these and return the full JSON again:\n${opts.retryFeedback}`;
   }
