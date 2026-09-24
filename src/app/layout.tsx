@@ -12,6 +12,7 @@ import { ThemeToggle } from "@/components/ThemeToggle";
 import { AppShell } from "@/components/AppShell";
 import { InlineScript } from "@/components/InlineScript";
 import { MainNav } from "@/components/MainNav";
+import { AssistantBot } from "@/components/AssistantBot";
 
 const THEME_INIT = `(function(){try{var t=localStorage.getItem('theme');if(t==='light'||t==='dark'){document.documentElement.dataset.theme=t;}}catch(e){}})();`;
 
@@ -74,6 +75,7 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
           {children}
         </AppShell>
         <CookieNotice />
+        <AssistantBot signedIn={!!user} />
       </body>
     </html>
   );

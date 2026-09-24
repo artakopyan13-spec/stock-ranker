@@ -510,6 +510,57 @@ a {
   .lp-marquee-track { transform: none; }
 }
 
+/* Rex — floating research sidekick */
+.lp-rex-fab {
+  width: 58px;
+  height: 58px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: radial-gradient(120% 120% at 30% 20%, var(--gold), var(--purple));
+  border: 1px solid color-mix(in srgb, var(--gold) 40%, transparent);
+  box-shadow: 0 10px 30px color-mix(in srgb, var(--purple) 45%, transparent);
+  cursor: pointer;
+  transition:
+    transform 0.15s ease,
+    box-shadow 0.2s ease;
+  animation: lp-rex-bob 4s ease-in-out infinite;
+}
+.lp-rex-fab:hover {
+  transform: translateY(-2px) scale(1.05);
+  box-shadow: 0 14px 36px color-mix(in srgb, var(--purple) 55%, transparent);
+}
+.lp-rex-fab:active {
+  transform: scale(0.96);
+}
+@keyframes lp-rex-bob {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-4px); }
+}
+.lp-rex-online {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: var(--green);
+  border: 2px solid var(--bg);
+}
+.lp-rex-avatar {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 16px;
+  background: radial-gradient(120% 120% at 30% 20%, var(--gold), var(--purple));
+  flex-shrink: 0;
+}
+@media (prefers-reduced-motion: reduce) {
+  .lp-rex-fab { animation: none; }
+}
+
 /* scorecard pillars (collapsible) */
 .sc-pillar > summary {
   list-style: none;
