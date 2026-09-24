@@ -548,34 +548,19 @@ a {
   93% { transform: scaleY(0.08); }
   96% { transform: scaleY(1); }
 }
-.rex-pupil {
+/* thinking = a frantic little trader shake */
+.rex--thinking {
   transform-box: fill-box;
-  transform-origin: center;
-  animation: rex-look 8s ease-in-out infinite;
+  transform-origin: 50% 60%;
+  animation: rex-shake 0.34s ease-in-out infinite;
 }
-@keyframes rex-look {
-  0%, 15%, 100% { transform: translate(0, 0); }
-  25% { transform: translate(-1.6px, 0); }
-  45% { transform: translate(1.6px, 0.4px); }
-  65% { transform: translate(0, -1.2px); }
-}
-.rex-ears {
-  transform-box: fill-box;
-  transform-origin: 50% 42%;
-  transition: transform 0.25s ease;
-}
-.rex--thinking .rex-pupil {
-  animation: rex-think 1.1s ease-in-out infinite;
-}
-@keyframes rex-think {
-  0%, 100% { transform: translate(-1.8px, -1.6px); }
-  50% { transform: translate(1.8px, -1.6px); }
-}
-.rex--thinking .rex-ears {
-  transform: translateY(-1.5px) scaleY(1.06);
+@keyframes rex-shake {
+  0%, 100% { transform: rotate(-3deg) translateY(0); }
+  50% { transform: rotate(3deg) translateY(-0.4px); }
 }
 @media (prefers-reduced-motion: reduce) {
-  .rex-eyes, .rex-pupil { animation: none; }
+  .rex-eyes { animation: none; }
+  .rex--thinking { animation: none; }
 }
 .lp-rex-fab:hover {
   transform: translateY(-2px) scale(1.05);
