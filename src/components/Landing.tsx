@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { ThemeToggle } from "@/components/ThemeToggle";
 
 const CTA_PRIMARY = "Analyze a stock — free";
@@ -38,6 +39,14 @@ const FAQ: { q: string; a: string }[] = [
 ];
 
 export function Landing() {
+  const router = useRouter();
+  const [ticker, setTicker] = useState("");
+  const tryIt = (e: React.FormEvent) => {
+    e.preventDefault();
+    const t = ticker.trim().toUpperCase().replace(/[^A-Z.\-]/g, "");
+    if (t) router.push(`/t/${encodeURIComponent(t)}`);
+  };
+
   useEffect(() => {
     const els = Array.from(document.querySelectorAll<HTMLElement>(".reveal"));
     if (!("IntersectionObserver" in window)) {
@@ -144,11 +153,22 @@ export function Landing() {
               A full analyst‑grade report on any stock — rating, bull vs. bear, catalysts, a 12‑month view.
               <span className="text-text"> Every number is sourced and dated, or flagged unverified. Never invented.</span>
             </p>
-            <div className="mt-7 flex flex-wrap gap-3">
-              <Link href="/signin" className="btn btn-primary no-underline px-5 py-2.5 lp-shine">{CTA_PRIMARY}</Link>
-              <Link href="/examples" className="btn no-underline px-5 py-2.5">See a live example →</Link>
+            <form onSubmit={tryIt} className="mt-7 flex gap-2 max-w-md">
+              <input
+                value={ticker}
+                onChange={(e) => setTicker(e.target.value)}
+                placeholder="Try any ticker — e.g. NVDA"
+                aria-label="Ticker to analyze"
+                autoComplete="off"
+                autoCapitalize="characters"
+                className="flex-1"
+              />
+              <button type="submit" className="btn btn-primary px-5 lp-shine">Analyze free →</button>
+            </form>
+            <div className="mt-2 text-xs text-muted">One free analysis, no signup. After that, <Link href="/signin" className="text-purple no-underline hover:underline">sign in — it&rsquo;s free</Link> — to run more.</div>
+            <div className="mt-3">
+              <Link href="/examples" className="text-sm text-muted hover:text-text no-underline">or see a live example →</Link>
             </div>
-            <div className="mt-4 text-xs text-muted">Free · no credit card · your first report in about a minute</div>
             <div className="mt-6 flex flex-wrap gap-x-5 gap-y-2 text-xs text-muted">
               <span className="lp-tick">Source‑verified</span>
               <span className="lp-tick">Free cash flow first</span>

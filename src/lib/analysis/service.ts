@@ -174,7 +174,7 @@ export async function persistAnalysis(args: {
  */
 export async function getOrCreateAnalysis(
   symbol: string,
-  opts: { force?: boolean; onEvent?: (e: AnalysisEvent) => void; userId?: string | null; ip?: string; source?: AnalysisSource; system?: boolean } = {},
+  opts: { force?: boolean; onEvent?: (e: AnalysisEvent) => void; userId?: string | null; ip?: string; source?: AnalysisSource; system?: boolean; allowAnon?: boolean; anonUsed?: boolean } = {},
 ): Promise<StoredAnalysis> {
   const sym = symbol.toUpperCase();
   const e = env();
@@ -197,7 +197,7 @@ export async function getOrCreateAnalysis(
 
   // A fresh (paid) analysis is wanted — this is the only place the bill can grow.
   // `system` callers (seed script) bypass the per-user gate; the route path never sets it.
-  const gate = opts.system ? ({ allow: true } as const) : await gateFreshAnalysis({ userId: opts.userId ?? null, ip: opts.ip ?? "0.0.0.0" });
+  const gate = opts.system ? ({ allow: true } as const) : await gateFreshAnalysis({ userId: opts.userId ?? null, ip: opts.ip ?? "0.0.0.0", allowAnon: opts.allowAnon, anonUsed: opts.anonUsed });
   if (!gate.allow) {
     if (existing) {
       // Degrade gracefully: show the last cached analysis with a notice, never an error.

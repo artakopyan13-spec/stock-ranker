@@ -17,6 +17,11 @@ export interface GateInput {
   userId: string | null;
   ip: string;
   now?: Date;
+  /** Allow a single anonymous "try it once" analysis (landing demo). Still bounded by IP rate
+   *  limit, the global kill switch, spend ceiling and daily cap — just not by login/user quota. */
+  allowAnon?: boolean;
+  /** The visitor already used their free anonymous attempt (drives a tailored message). */
+  anonUsed?: boolean;
 }
 
 /**
@@ -33,7 +38,24 @@ export async function gateFreshAnalysis(input: GateInput): Promise<GateResult> {
     return { allow: false, reason: "no_key", message: "Fresh analyses are temporarily unavailable." };
   }
   if (!input.userId) {
-    return { allow: false, reason: "login_required", message: "Sign in to run a fresh analysis. Cached analyses are free to view." };
+    if (!input.allowAnon) {
+      return {
+        allow: false,
+        reason: "login_required",
+        message: input.anonUsed
+          ? "You've used your free analysis. Sign in — it's free — to run more. Cached analyses stay free to view."
+          : "Sign in to run a fresh analysis. Cached analyses are free to view.",
+      };
+    }
+    // One anonymous "try it once" analysis: skip login + per-user quota, keep the bill guards.
+    const rl = await rateLimit(`ip:${input.ip}`, now);
+    if (!rl.ok) return { allow: false, reason: "rate_limit", message: "You're going a bit fast. Try again in a moment.", retryAfterSec: rl.retryAfterSec };
+    const limits = await effectiveLimits();
+    if (limits.killSwitchManual) return { allow: false, reason: "kill_switch", message: "Fresh analyses are paused right now due to high demand. Cached results are still available." };
+    const [spend, count] = await Promise.all([spendToday(now), analysesToday(now)]);
+    if (spend >= limits.spendCeilingUsd) return { allow: false, reason: "kill_switch", message: "We've hit today's analysis budget. Showing the latest cached analysis; fresh runs resume tomorrow." };
+    if (count >= limits.maxAnalysesPerDay) return { allow: false, reason: "global_cap", message: "Today's global analysis limit is reached. Showing cached results; fresh runs resume tomorrow." };
+    return { allow: true, userId: "anon", remainingToday: 0 };
   }
 
   const user = await db().user.findUnique({ where: { id: input.userId }, select: { banned: true, dailyQuota: true, role: true } });
