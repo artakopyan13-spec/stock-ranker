@@ -15,16 +15,22 @@ interface Props {
   placeholder?: string;
   emptyHint?: string;
   signedIn?: boolean;
+  /** Notified when the panel starts/stops streaming a reply (drives the Rex "thinking" state). */
+  onBusyChange?: (busy: boolean) => void;
 }
 
 /** Generic grounded-chat panel driving an SSE endpoint (copilot + portfolio share it). */
-export function ChatPanel({ endpoint, body, historyUrl, suggestions = [], placeholder = "Ask a question…", emptyHint, signedIn = true }: Props) {
+export function ChatPanel({ endpoint, body, historyUrl, suggestions = [], placeholder = "Ask a question…", emptyHint, signedIn = true, onBusyChange }: Props) {
   const [messages, setMessages] = useState<ChatMsg[]>([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [remaining, setRemaining] = useState<number | null>(null);
   const scroller = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    onBusyChange?.(busy);
+  }, [busy, onBusyChange]);
 
   useEffect(() => {
     if (!historyUrl) return;

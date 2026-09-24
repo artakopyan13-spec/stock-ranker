@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { FeatureIcon } from "@/components/FeatureIcon";
 
 const CTA_PRIMARY = "Analyze a stock — free";
 
@@ -16,11 +17,11 @@ const PROBLEMS: { icon: string; h: string; p: string }[] = [
 ];
 
 const FEATURES: { icon: string; h: string; p: string }[] = [
-  { icon: "🩺", h: "Portfolio X-ray", p: "Paste holdings or upload a statement for an honest, FCF-first review: concentration, price zones, trim / hold, ideas to fill the gaps." },
-  { icon: "💬", h: "Ask this stock", p: "A copilot that answers only from the verified analysis on the page. It will not make up a number." },
-  { icon: "📊", h: "A public track record", p: "Every rating ever made, graded against today’s price — the losers included. No cherry-picking." },
-  { icon: "⏱️", h: "Time machine", p: "Scrub the AI’s past calls over the price chart and see the return since each one." },
-  { icon: "🔎", h: "Screener & compare", p: "Filter the whole universe by rating, cash flow, growth and value; compare five names side by side." },
+  { icon: "xray", h: "Portfolio X-ray", p: "Paste holdings or upload a statement for an honest, FCF-first review: concentration, price zones, trim / hold, ideas to fill the gaps." },
+  { icon: "ask", h: "Ask this stock", p: "A copilot that answers only from the verified analysis on the page. It will not make up a number." },
+  { icon: "track", h: "A public track record", p: "Every rating ever made, graded against today’s price — the losers included. No cherry-picking." },
+  { icon: "time", h: "Time machine", p: "Scrub the AI’s past calls over the price chart and see the return since each one." },
+  { icon: "screener", h: "Screener & compare", p: "Filter the whole universe by rating, cash flow, growth and value; compare five names side by side." },
 ];
 
 const STEPS: { n: string; h: string; p: string }[] = [
@@ -420,8 +421,10 @@ export function Landing() {
         <div className="mt-10 grid grid-cols-1 md:grid-cols-3 auto-rows-[minmax(0,1fr)] gap-4">
           <div className="reveal card p-6 md:col-span-2 md:row-span-2 relative overflow-hidden hover:border-purple transition-colors">
             <div aria-hidden className="lp-tile-glow" />
-            <div className="text-2xl">🧠</div>
-            <div className="font-semibold text-lg mt-2">Investment committee</div>
+            <div className="w-11 h-11 rounded-xl grid place-items-center bg-[color:var(--gold-bg)] text-gold">
+              <FeatureIcon name="committee" />
+            </div>
+            <div className="font-semibold text-lg mt-3">Investment committee</div>
             <p className="text-sm text-muted mt-1.5 max-w-md leading-snug">Five AI analysts — Research, Risk, Macro, Devil’s Advocate, Capital Allocation — argue the stock out. A chair weighs the debate and rules a score and a call, with the dissent kept on the record.</p>
             <div className="mt-5 flex flex-wrap gap-2">
               {["Research", "Risk", "Macro", "Devil’s Advocate", "Capital Allocation"].map((r) => (
@@ -440,8 +443,10 @@ export function Landing() {
 
           {FEATURES.map((f, i) => (
             <div key={f.h} className="reveal card p-5 hover:border-purple transition-colors" style={{ transitionDelay: `${(i % 3) * 60}ms` }}>
-              <div className="text-2xl" aria-hidden>{f.icon}</div>
-              <div className="font-semibold mt-2">{f.h}</div>
+              <div className="w-11 h-11 rounded-xl grid place-items-center bg-[color:var(--gold-bg)] text-gold">
+                <FeatureIcon name={f.icon} />
+              </div>
+              <div className="font-semibold mt-3">{f.h}</div>
               <p className="text-sm text-muted mt-1.5 leading-snug">{f.p}</p>
             </div>
           ))}
