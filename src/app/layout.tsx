@@ -11,6 +11,7 @@ import { QuotaBadge } from "@/components/QuotaBadge";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { AppShell } from "@/components/AppShell";
 import { InlineScript } from "@/components/InlineScript";
+import { MainNav } from "@/components/MainNav";
 
 const THEME_INIT = `(function(){try{var t=localStorage.getItem('theme');if(t==='light'||t==='dark'){document.documentElement.dataset.theme=t;}}catch(e){}})();`;
 
@@ -65,29 +66,7 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
                 )}
               </div>
             </div>
-            <nav className="flex items-center gap-6 text-[0.95rem] pb-2.5 overflow-x-auto no-scrollbar">
-              {(
-                [
-                  ["/", "Search"],
-                  ["/leaderboard", "Top Rated"],
-                  ["/track-record", "Track record"],
-                  ["/screener", "Screener"],
-                  ["/compare", "Compare"],
-                  ["/portfolio", "Portfolio"],
-                  ["/calendar", "Calendar"],
-                  ["/w", "Watchlists"],
-                  ["/changes", "What changed"],
-                  ["/learn", "Learn"],
-                  ["/how-it-works", "How it works"],
-                  ["/users", "People"],
-                ] as const
-              ).map(([href, label]) => (
-                <Link key={href} href={href} className="text-muted hover:text-text no-underline whitespace-nowrap py-0.5 transition-colors">
-                  {label}
-                </Link>
-              ))}
-              {user?.role === "admin" && <Link href="/admin" className="text-gold hover:text-text no-underline whitespace-nowrap py-0.5">Admin</Link>}
-            </nav>
+            <MainNav isAdmin={user?.role === "admin"} />
           </div>
         </header>
           }

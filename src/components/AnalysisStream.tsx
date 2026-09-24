@@ -98,7 +98,12 @@ export function AnalysisStream({ ticker, initialAnalysis, shareUrl, autoStart, s
     const a = state.analysis;
     return (
       <div className="space-y-3">
-      {state.notice && <div className="card p-3 text-sm border-l-2 border-l-gold text-muted">{state.notice} Showing the latest cached analysis.</div>}
+      {state.notice && (
+        <div className="card p-3 text-sm border-l-2 border-l-gold text-muted flex flex-wrap items-center gap-2">
+          <span>{state.notice} Showing the latest cached analysis.</span>
+          {!signedIn && <a href="/signin" className="btn btn-primary py-1 px-3 text-xs no-underline ml-auto">Sign in — free</a>}
+        </div>
+      )}
       <AnalysisView
         analysis={a}
         headerRight={
