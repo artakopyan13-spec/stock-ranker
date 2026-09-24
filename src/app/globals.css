@@ -510,6 +510,14 @@ a {
   .lp-marquee-track { transform: none; }
 }
 
+/* scorecard pillars (collapsible) */
+.sc-pillar > summary {
+  list-style: none;
+}
+.sc-pillar > summary::-webkit-details-marker {
+  display: none;
+}
+
 /* ---------- cards ---------- */
 .card {
   background: var(--card);
