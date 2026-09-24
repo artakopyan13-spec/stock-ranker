@@ -3,7 +3,9 @@ import type { CompanyData, FinancialRow } from "@/lib/data/company";
 /**
  * A deterministic, code-computed quality/value scorecard for a stock. Every point is math on
  * the provider's financials — no model judgment — so it fits the app's "no invented numbers"
- * rule. FCF-weighted, in the spirit of the analysis. Metrics with missing data score neutral.
+ * rule. FCF-weighted, and the good/bad standards are ADJUSTED BY SECTOR so a low-margin
+ * retailer or a leveraged utility isn't judged by software-company rules. Missing figures
+ * score neutral.
  */
 export type Tone = "good" | "ok" | "bad" | "unknown";
 
@@ -24,22 +26,77 @@ export interface ScPillar {
   metrics: ScMetric[];
 }
 export interface Scorecard {
-  overall: { score: number; max: number; pct: number; grade: string; verdict: string };
+  overall: { score: number; max: number; pct: number; grade: string; verdict: string; strengths: string[]; watch: string[] };
+  sectorLabel: string;
   pillars: ScPillar[];
 }
 
 const r1 = (n: number) => Math.round(n * 10) / 10;
 
+// ---- sector-aware thresholds ----
+type Band = [good: number, ok: number];
+interface Cfg {
+  netMargin: Band;
+  grossMargin: Band;
+  opMargin: Band;
+  fcfMargin: Band;
+  roe: Band;
+  revGrowth: Band;
+  epsGrowth: Band;
+  pe: Band; // lower better
+  pfcf: Band;
+  ps: Band;
+  peg: Band;
+  de: Band;
+  leverageNormal: boolean; // true = debt is structural; don't punish net debt
+}
+
+const BASE: Cfg = {
+  netMargin: [20, 8],
+  grossMargin: [40, 20],
+  opMargin: [15, 6],
+  fcfMargin: [10, 3],
+  roe: [15, 8],
+  revGrowth: [10, 3],
+  epsGrowth: [10, 2],
+  pe: [20, 40],
+  pfcf: [20, 40],
+  ps: [5, 12],
+  peg: [1.5, 3],
+  de: [0.5, 1.5],
+  leverageNormal: false,
+};
+
+/** Per-sector overrides (Yahoo sector strings, lowercased). Anything omitted inherits BASE. */
+const SECTORS: Record<string, Partial<Cfg>> = {
+  technology: { netMargin: [18, 8], grossMargin: [55, 35], opMargin: [18, 8], revGrowth: [15, 5], epsGrowth: [15, 4], pe: [30, 55], pfcf: [30, 55], ps: [8, 18], peg: [2, 4] },
+  "communication services": { netMargin: [15, 6], grossMargin: [50, 30], opMargin: [15, 7], revGrowth: [12, 4], pe: [28, 50], pfcf: [28, 55], ps: [6, 14], peg: [2, 4] },
+  healthcare: { netMargin: [12, 5], grossMargin: [45, 25], opMargin: [15, 6], revGrowth: [8, 2], pe: [25, 45], pfcf: [25, 50], ps: [4, 9] },
+  "consumer defensive": { netMargin: [8, 4], grossMargin: [30, 18], opMargin: [10, 5], revGrowth: [5, 1], epsGrowth: [7, 2], pe: [22, 35], pfcf: [22, 45], ps: [2, 4] },
+  "consumer cyclical": { netMargin: [8, 3], grossMargin: [30, 18], opMargin: [8, 4], revGrowth: [8, 2], pe: [20, 35], pfcf: [22, 45], ps: [2, 5] },
+  industrials: { netMargin: [10, 5], grossMargin: [30, 18], opMargin: [12, 6], revGrowth: [8, 2], pe: [20, 35], ps: [2.5, 6] },
+  energy: { netMargin: [10, 4], grossMargin: [30, 15], opMargin: [12, 5], revGrowth: [8, 0], pe: [15, 30], ps: [2, 5], de: [0.6, 1.5], leverageNormal: true },
+  "basic materials": { netMargin: [10, 4], grossMargin: [28, 15], opMargin: [12, 5], revGrowth: [8, 0], pe: [16, 30], ps: [2, 5], de: [0.6, 1.5], leverageNormal: true },
+  utilities: { netMargin: [10, 6], grossMargin: [30, 18], opMargin: [15, 8], revGrowth: [4, 0], epsGrowth: [5, 1], pe: [20, 30], pfcf: [25, 55], ps: [3, 6], de: [1.5, 2.5], leverageNormal: true },
+  "real estate": { netMargin: [20, 8], grossMargin: [45, 25], opMargin: [25, 12], revGrowth: [6, 1], pe: [30, 60], pfcf: [25, 60], ps: [6, 14], de: [1.5, 3], leverageNormal: true },
+  "financial services": { netMargin: [22, 12], grossMargin: [60, 35], opMargin: [25, 12], roe: [12, 7], revGrowth: [8, 2], pe: [15, 25], pfcf: [20, 45], ps: [3, 6], de: [2, 4], leverageNormal: true },
+};
+
+function cfgFor(sector: string | null): Cfg {
+  const key = (sector ?? "").trim().toLowerCase();
+  return { ...BASE, ...(SECTORS[key] ?? {}) };
+}
+
 // ---- scoring primitives (frac in [0,1]) ----
 type S = { frac: number; tone: Tone };
-function hi(v: number | null, good: number, ok: number): S {
+function hi(v: number | null, [good, ok]: Band): S {
   if (v == null || !Number.isFinite(v)) return { frac: 0.4, tone: "unknown" };
   if (v >= good) return { frac: 1, tone: "good" };
   if (v >= ok) return { frac: 0.5 + (0.5 * (v - ok)) / (good - ok), tone: "ok" };
   if (v <= 0) return { frac: 0, tone: "bad" };
   return { frac: Math.max(0, (0.5 * v) / ok), tone: "bad" };
 }
-function lo(v: number | null, good: number, ok: number): S {
+function lo(v: number | null, [good, ok]: Band): S {
   if (v == null || !Number.isFinite(v) || v < 0) return { frac: 0.4, tone: "unknown" };
   if (v <= good) return { frac: 1, tone: "good" };
   if (v <= ok) return { frac: 0.5 + (0.5 * (ok - v)) / (ok - good), tone: "ok" };
@@ -95,8 +152,9 @@ export function computeScorecard(data: CompanyData): Scorecard | null {
   const a = A[A.length - 1];
   const q = data.quarterly;
   const ks = data.overview.keyStats;
+  const c = cfgFor(data.overview.sector);
+  const sectorLabel = data.overview.sector ?? "the market";
 
-  // Prefer trailing-twelve-month flows; fall back to the latest fiscal year.
   const rev = ttm(q, "revenue") ?? a.revenue;
   const ni = ttm(q, "netIncome") ?? a.netIncome;
   const fcf = ttm(q, "fcf") ?? a.fcf;
@@ -112,17 +170,17 @@ export function computeScorecard(data: CompanyData): Scorecard | null {
   const grossM = marginPct(gp, rev);
   const opM = marginPct(oi, rev);
   const fcfM = marginPct(fcf, rev);
-  const roe = marginPct(ni, equity);
+  const roe = equity != null && equity > 0 ? marginPct(ni, equity) : null; // negative equity makes ROE meaningless
   const last5 = A.slice(-5);
   const positiveYears = last5.filter((y) => (y.netIncome ?? -1) > 0).length;
-  const lossFree = last5.length ? { frac: positiveYears / last5.length, tone: (positiveYears === last5.length ? "good" : positiveYears >= last5.length - 1 ? "ok" : "bad") as Tone } : { frac: 0.4, tone: "unknown" as Tone };
+  const lossFree: S = last5.length ? { frac: positiveYears / last5.length, tone: positiveYears === last5.length ? "good" : positiveYears >= last5.length - 1 ? "ok" : "bad" } : { frac: 0.4, tone: "unknown" };
 
   const profit = pillar("profit", "Profitability & Quality", [
-    metric("Net margin", "Net income as a share of revenue — how much of each sale becomes profit.", ">20% ideal", pct(netM), hi(netM, 20, 8), 6),
-    metric("Free cash flow margin", "FCF as a share of revenue. The app's #1 lens: real cash the business throws off.", ">10% ideal", pct(fcfM), hi(fcfM, 10, 3), 6),
-    metric("Return on equity", "Net income over shareholder equity — how hard the equity works.", ">15% ideal", pct(roe), hi(roe, 15, 8), 6),
-    metric("Gross margin", "Revenue minus cost of goods, as a share of revenue — pricing power.", ">40% ideal", pct(grossM), hi(grossM, 40, 20), 5),
-    metric("Operating margin", "Operating income over revenue — profitability of the core business.", ">15% ideal", pct(opM), hi(opM, 15, 6), 4),
+    metric("Net margin", "Net income as a share of revenue — how much of each sale becomes profit. Adjusted for the sector.", `>${c.netMargin[0]}% ideal`, pct(netM), hi(netM, c.netMargin), 6),
+    metric("Free cash flow margin", "FCF as a share of revenue. The app's #1 lens: real cash the business throws off.", `>${c.fcfMargin[0]}% ideal`, pct(fcfM), hi(fcfM, c.fcfMargin), 6),
+    metric("Return on equity", "Net income over shareholder equity — how hard the equity works. (Shown blank when equity is negative.)", `>${c.roe[0]}% ideal`, pct(roe), hi(roe, c.roe), 6),
+    metric("Gross margin", "Revenue minus cost of goods, as a share of revenue — pricing power. Adjusted for the sector.", `>${c.grossMargin[0]}% ideal`, pct(grossM), hi(grossM, c.grossMargin), 5),
+    metric("Operating margin", "Operating income over revenue — profitability of the core business.", `>${c.opMargin[0]}% ideal`, pct(opM), hi(opM, c.opMargin), 4),
     metric("Loss-free record", "Profitable years out of the last five. Consistency beats a single great year.", "5/5 ideal", `${positiveYears}/${last5.length || 5}`, lossFree, 3),
   ]);
 
@@ -135,7 +193,6 @@ export function computeScorecard(data: CompanyData): Scorecard | null {
   const epsNow = div(ni, a.sharesOutstanding);
   const epsThen = span > 0 ? div(A[A.length - 1 - span].netIncome, A[A.length - 1 - span].sharesOutstanding) : null;
   const epsCAGR = span > 0 ? cagr(epsNow, epsThen, span) : null;
-  // FCF trend: latest vs average of the prior three years.
   const fcfSeries = A.map((y) => y.fcf).filter((x): x is number => typeof x === "number");
   let fcfTrend: S = { frac: 0.4, tone: "unknown" };
   let fcfTrendLabel = "—";
@@ -149,9 +206,9 @@ export function computeScorecard(data: CompanyData): Scorecard | null {
   }
 
   const growth = pillar("growth", "Growth", [
-    metric("Revenue growth (YoY)", "Latest year's revenue vs the prior year.", ">10% ideal", pct(revYoY), hi(revYoY, 10, 3), 5),
-    metric(`Revenue CAGR (${span || "—"}yr)`, "Compound annual revenue growth over the window — the durable trend.", ">10% ideal", pct(revCAGR), hi(revCAGR, 10, 3), 5),
-    metric(`EPS growth (${span || "—"}yr)`, "Compound annual growth in earnings per share — growth that reaches owners.", ">10% ideal", pct(epsCAGR), hi(epsCAGR, 10, 2), 6),
+    metric("Revenue growth (YoY)", "Latest year's revenue vs the prior year. Adjusted for the sector.", `>${c.revGrowth[0]}% ideal`, pct(revYoY), hi(revYoY, c.revGrowth), 5),
+    metric(`Revenue CAGR (${span || "—"}yr)`, "Compound annual revenue growth over the window — the durable trend.", `>${c.revGrowth[0]}% ideal`, pct(revCAGR), hi(revCAGR, c.revGrowth), 5),
+    metric(`EPS growth (${span || "—"}yr)`, "Compound annual growth in earnings per share — growth that reaches owners.", `>${c.epsGrowth[0]}% ideal`, pct(epsCAGR), hi(epsCAGR, c.epsGrowth), 6),
     metric("Free cash flow trend", "Latest FCF vs the prior three-year average.", "Rising ideal", fcfTrendLabel, fcfTrend, 4),
   ]);
 
@@ -162,10 +219,13 @@ export function computeScorecard(data: CompanyData): Scorecard | null {
   const shPrev = span > 0 ? A[A.length - 1 - span].sharesOutstanding : null;
   const dilution = shPrev && a.sharesOutstanding ? (a.sharesOutstanding / shPrev - 1) * 100 : null;
   const dilutionScore: S = dilution == null ? { frac: 0.4, tone: "unknown" } : dilution <= 0 ? { frac: 1, tone: "good" } : dilution <= 5 ? { frac: 0.6, tone: "ok" } : { frac: 0.2, tone: "bad" };
+  // In leverage-normal sectors (utilities, REITs, financials, energy) net debt is structural, not a red flag.
+  const netCashScore: S =
+    netCash == null ? { frac: 0.4, tone: "unknown" } : netCash >= 0 ? { frac: 1, tone: "good" } : c.leverageNormal ? { frac: 0.6, tone: "ok" } : { frac: 0, tone: "bad" };
 
   const health = pillar("health", "Financial Health", [
-    metric("Net cash position", "Cash minus total debt. Positive means the balance sheet is a fortress.", "Positive ideal", money(netCash), bool(netCash == null ? null : netCash >= 0), 6),
-    metric("Debt / equity", "Total debt over equity — leverage.", "<0.5 ideal", de == null ? "—" : `${r1(de)}`, lo(de, 0.5, 1.5), 5),
+    metric("Net cash position", `Cash minus total debt. ${c.leverageNormal ? "Net debt is normal in this sector, so it isn't penalized." : "Positive means a fortress balance sheet."}`, c.leverageNormal ? "Positive is a plus" : "Positive ideal", money(netCash), netCashScore, 6),
+    metric("Debt / equity", "Total debt over equity — leverage. Threshold adjusted for the sector.", `<${c.de[0]} ideal`, de == null ? "—" : `${r1(de)}`, lo(de, c.de), 5),
     metric("Free cash flow positive", "Does the business generate positive free cash flow?", "Yes", fcf == null ? "—" : fcf > 0 ? "Yes" : "No", bool(fcfPos), 5),
     metric(`Share count (${span || "—"}yr)`, "Change in shares outstanding. Buybacks (shrinking) reward owners; issuance dilutes them.", "Shrinking ideal", dilution == null ? "—" : `${dilution > 0 ? "+" : ""}${r1(dilution)}%`, dilutionScore, 4),
   ]);
@@ -180,11 +240,11 @@ export function computeScorecard(data: CompanyData): Scorecard | null {
   const peg = pe != null && revCAGR != null && revCAGR > 0 ? pe / revCAGR : null;
 
   const valuation = pillar("valuation", "Valuation", [
-    metric("Price / free cash flow", "Market cap over trailing FCF. The app's primary value lens — what you pay for the cash.", "<20 ideal", mult(pfcf), lo(pfcf, 20, 40), 9),
-    metric("Price / earnings", "Market cap over trailing net income.", "<20 ideal", mult(pe), lo(pe, 20, 40), 7),
-    metric("Price / sales", "Market cap over trailing revenue — useful when earnings are thin.", "<5 ideal", mult(ps), lo(ps, 5, 12), 5),
-    metric("P/E vs 5-yr average", "Today's P/E relative to its own five-year average — cheaper than its history is good.", "<1.0× ideal", mult(peVs5y), lo(peVs5y, 1.0, 1.5), 5),
-    metric("PEG (P/E ÷ growth)", "Valuation adjusted for growth — a rich multiple can be fair if growth is high.", "<1.5 ideal", peg == null ? "—" : `${r1(peg)}`, lo(peg, 1.5, 3), 4),
+    metric("Price / free cash flow", "Market cap over trailing FCF. The app's primary value lens — what you pay for the cash. Adjusted for the sector.", `<${c.pfcf[0]}× ideal`, mult(pfcf), lo(pfcf, c.pfcf), 9),
+    metric("Price / earnings", "Market cap over trailing net income. Adjusted for the sector.", `<${c.pe[0]}× ideal`, mult(pe), lo(pe, c.pe), 7),
+    metric("Price / sales", "Market cap over trailing revenue — useful when earnings are thin. Adjusted for the sector.", `<${c.ps[0]}× ideal`, mult(ps), lo(ps, c.ps), 5),
+    metric("P/E vs 5-yr average", "Today's P/E relative to its own five-year average — cheaper than its history is good.", "<1.0× ideal", mult(peVs5y), lo(peVs5y, [1.0, 1.5]), 5),
+    metric("PEG (P/E ÷ growth)", "Valuation adjusted for growth — a rich multiple can be fair if growth is high.", `<${c.peg[0]} ideal`, peg == null ? "—" : `${r1(peg)}`, lo(peg, c.peg), 4),
   ]);
 
   const pillars = [profit, growth, health, valuation];
@@ -194,5 +254,10 @@ export function computeScorecard(data: CompanyData): Scorecard | null {
   const grade = pctScore >= 85 ? "A" : pctScore >= 75 ? "A−" : pctScore >= 65 ? "B" : pctScore >= 55 ? "B−" : pctScore >= 45 ? "C" : "D";
   const verdict = pctScore >= 75 ? "Excellent" : pctScore >= 60 ? "Good" : pctScore >= 45 ? "Fair" : "Weak";
 
-  return { overall: { score, max, pct: r1(pctScore), grade, verdict }, pillars };
+  // Auto strengths / watch: best "good" metrics and worst "bad" metrics by fill ratio.
+  const all = pillars.flatMap((p) => p.metrics.map((m) => ({ label: m.label, tone: m.tone, fill: m.max ? m.points / m.max : 0 })));
+  const strengths = all.filter((m) => m.tone === "good").sort((x, y) => y.fill - x.fill).slice(0, 3).map((m) => m.label);
+  const watch = all.filter((m) => m.tone === "bad").sort((x, y) => x.fill - y.fill).slice(0, 3).map((m) => m.label);
+
+  return { overall: { score, max, pct: r1(pctScore), grade, verdict, strengths, watch }, sectorLabel, pillars };
 }

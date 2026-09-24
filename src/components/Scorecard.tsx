@@ -76,8 +76,24 @@ export function Scorecard({ data }: { data: CompanyData }) {
         <div className="mt-4">
           <Squares frac={sc.overall.pct / 100} />
         </div>
+        {(sc.overall.strengths.length > 0 || sc.overall.watch.length > 0) && (
+          <div className="mt-4 grid sm:grid-cols-2 gap-2">
+            {sc.overall.strengths.length > 0 && (
+              <div className="card-2 p-3">
+                <div className="text-[0.65rem] uppercase tracking-wider text-green mb-1">Strengths</div>
+                <div className="text-xs text-muted leading-relaxed">{sc.overall.strengths.join(" · ")}</div>
+              </div>
+            )}
+            {sc.overall.watch.length > 0 && (
+              <div className="card-2 p-3">
+                <div className="text-[0.65rem] uppercase tracking-wider text-red mb-1">Watch</div>
+                <div className="text-xs text-muted leading-relaxed">{sc.overall.watch.join(" · ")}</div>
+              </div>
+            )}
+          </div>
+        )}
         <p className="mt-3 text-xs text-dim leading-relaxed">
-          Computed from the provider&rsquo;s financials — math, not model judgment — and weighted toward free cash flow. The ideal standard is shown on each metric; missing figures score neutral. Not financial advice.
+          Computed from the provider&rsquo;s financials — math, not model judgment — weighted toward free cash flow, with standards <span className="text-muted">adjusted for {sc.sectorLabel}</span>. The ideal is shown on each metric; missing figures score neutral. Not financial advice.
         </p>
       </div>
       {sc.pillars.map((p, i) => (
