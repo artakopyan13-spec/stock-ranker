@@ -91,6 +91,11 @@ const EnvSchema = z.object({
   STRIPE_PRICE_INVESTOR: z.string().optional(),
   STRIPE_PRICE_PRO: z.string().optional(),
   STRIPE_PRICE_ELITE: z.string().optional(),
+
+  // Macro dashboard. FRED is a free St. Louis Fed API key (fred.stlouisfed.org) for CPI,
+  // mortgage rates, fed funds, unemployment. Optional: the Macro tab still shows live Treasury
+  // yields (Yahoo) and the AI calendar/news without it; FRED just adds the official series.
+  FRED_API_KEY: z.string().optional(),
 });
 
 export type Env = z.infer<typeof EnvSchema>;

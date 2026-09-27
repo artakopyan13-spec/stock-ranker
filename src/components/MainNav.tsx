@@ -14,6 +14,7 @@ const PRIMARY: [string, string][] = [
 ];
 const MORE: [string, string][] = [
   ["/research", "Research"],
+  ["/macro", "Macro"],
   ["/pricing", "Pricing"],
   ["/compare", "Compare"],
   ["/calendar", "Calendar"],
