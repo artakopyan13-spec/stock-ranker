@@ -13,6 +13,7 @@ const PRIMARY: [string, string][] = [
   ["/w", "Watchlists"],
 ];
 const MORE: [string, string][] = [
+  ["/pricing", "Pricing"],
   ["/compare", "Compare"],
   ["/calendar", "Calendar"],
   ["/track-record", "Track record"],

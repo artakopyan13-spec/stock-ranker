@@ -1,5 +1,6 @@
 import { db } from "@/lib/db";
 import { env } from "@/lib/env";
+import { capsFor } from "@/lib/plans";
 import { effectiveLimits } from "@/lib/quota/settings";
 import { analysesToday, spendToday, userActionsToday, userAnalysesToday } from "@/lib/quota/spend";
 import { rateLimit } from "@/lib/quota/ratelimit";
@@ -58,7 +59,7 @@ export async function gateFreshAnalysis(input: GateInput): Promise<GateResult> {
     return { allow: true, userId: "anon", remainingToday: 0 };
   }
 
-  const user = await db().user.findUnique({ where: { id: input.userId }, select: { banned: true, dailyQuota: true, role: true } });
+  const user = await db().user.findUnique({ where: { id: input.userId }, select: { banned: true, dailyQuota: true, role: true, plan: true } });
   if (!user) return { allow: false, reason: "login_required", message: "Please sign in again." };
   if (user.banned) return { allow: false, reason: "banned", message: "Your account is suspended." };
 
@@ -79,14 +80,16 @@ export async function gateFreshAnalysis(input: GateInput): Promise<GateResult> {
     return { allow: false, reason: "global_cap", message: "Today's global analysis limit is reached. Showing cached results; fresh runs resume tomorrow." };
   }
 
-  // Per-user daily quota. Admins are exempt (still bounded by the global spend ceiling above).
-  if (user.role === "admin") {
-    return { allow: true, userId: input.userId, remainingToday: 9999 };
+  // Per-user daily quota by plan. Admins and unlimited (Elite) plans are exempt — still bounded by
+  // the global spend ceiling above. A per-user dailyQuota override, when set, wins over the plan.
+  const caps = capsFor(user);
+  if (caps.unlimited) {
+    return { allow: true, userId: input.userId, remainingToday: 999999 };
   }
-  const quota = user.dailyQuota ?? limits.freeDailyFresh;
+  const quota = user.dailyQuota ?? caps.freshPerDay;
   const used = await userAnalysesToday(input.userId, now);
   if (used >= quota) {
-    return { allow: false, reason: "user_quota", message: `You've used your ${quota} fresh analyses for today. Cached analyses stay free, and your quota resets at midnight UTC.` };
+    return { allow: false, reason: "user_quota", message: `You've used today's ${quota} fresh analyses. Upgrade for more — or they reset at midnight UTC.` };
   }
 
   return { allow: true, userId: input.userId, remainingToday: quota - used };
@@ -111,7 +114,7 @@ export async function gateAiAction(
     return { allow: false, reason: "login_required", message: "Sign in to chat with the assistant." };
   }
 
-  const user = await db().user.findUnique({ where: { id: input.userId }, select: { banned: true } });
+  const user = await db().user.findUnique({ where: { id: input.userId }, select: { banned: true, role: true, plan: true } });
   if (!user) return { allow: false, reason: "login_required", message: "Please sign in again." };
   if (user.banned) return { allow: false, reason: "banned", message: "Your account is suspended." };
 
@@ -127,10 +130,17 @@ export async function gateAiAction(
     return { allow: false, reason: "kill_switch", message: "We've hit today's AI budget. The assistant resumes tomorrow; cached analyses stay free." };
   }
 
+  // Admins and unlimited (Elite) plans never hit a per-user message cap; other plans use their
+  // own daily message allowance (falling back to the free default when a plan cap isn't finite).
+  const caps = capsFor(user);
+  if (caps.unlimited) {
+    return { allow: true, userId: input.userId, remainingToday: 999999 };
+  }
+  const cap = Number.isFinite(caps.chatPerDay) ? caps.chatPerDay : input.dailyCap;
   const used = await userActionsToday(input.userId, input.kinds, now);
-  if (used >= input.dailyCap) {
-    return { allow: false, reason: "user_quota", message: `You've used your ${input.dailyCap} assistant messages for today. Your allowance resets at midnight UTC.` };
+  if (used >= cap) {
+    return { allow: false, reason: "user_quota", message: "You've hit today's message limit. Upgrade for unlimited Wall Street Einstein and the Investment Committee." };
   }
 
-  return { allow: true, userId: input.userId, remainingToday: input.dailyCap - used };
+  return { allow: true, userId: input.userId, remainingToday: cap - used };
 }

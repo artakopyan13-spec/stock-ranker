@@ -172,6 +172,9 @@ model User {
   role          String    @default("user") // user | admin
   banned        Boolean   @default(false)
   dailyQuota    Int?      // per-user override of FREE_DAILY_FRESH_ANALYSES
+  plan          String    @default("free") // free | investor | pro | elite (see src/lib/plans.ts)
+  planRenewsAt  DateTime? // end of the current paid period (set on Stripe checkout success)
+  stripeCustomerId String? @unique
   createdAt     DateTime  @default(now())
   onboardedAt   DateTime? // set when the user finishes the welcome questions
   onboarding    String?   // JSON of onboarding answers

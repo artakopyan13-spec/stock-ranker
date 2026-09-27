@@ -25,6 +25,7 @@ export function ChatPanel({ endpoint, body, historyUrl, suggestions = [], placeh
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  const [upgrade, setUpgrade] = useState(false);
   const [remaining, setRemaining] = useState<number | null>(null);
   const scroller = useRef<HTMLDivElement>(null);
 
@@ -56,6 +57,7 @@ export function ChatPanel({ endpoint, body, historyUrl, suggestions = [], placeh
       if (!q || busy) return;
       setBusy(true);
       setNotice(null);
+      setUpgrade(false);
       setInput("");
       setMessages((m) => [...m, { role: "user", content: q }, { role: "assistant", content: "" }]);
       try {
@@ -77,7 +79,7 @@ export function ChatPanel({ endpoint, body, historyUrl, suggestions = [], placeh
             buffer = buffer.slice(idx + 2);
             const dataLine = frame.split("\n").find((l) => l.startsWith("data: "));
             if (!dataLine) continue;
-            const payload = JSON.parse(dataLine.slice(6)) as { type: string; text?: string; message?: string; remainingToday?: number };
+            const payload = JSON.parse(dataLine.slice(6)) as { type: string; text?: string; message?: string; reason?: string; remainingToday?: number };
             if (payload.type === "delta") {
               setMessages((m) => {
                 const copy = [...m];
@@ -88,6 +90,7 @@ export function ChatPanel({ endpoint, body, historyUrl, suggestions = [], placeh
               if (typeof payload.remainingToday === "number") setRemaining(payload.remainingToday);
             } else if (payload.type === "notice" || payload.type === "error") {
               setNotice(payload.message ?? "The assistant is unavailable.");
+              setUpgrade(payload.reason === "user_quota");
               setMessages((m) => m.slice(0, -1)); // drop the empty assistant bubble
             }
           }
@@ -136,7 +139,14 @@ export function ChatPanel({ endpoint, body, historyUrl, suggestions = [], placeh
           </div>
         ))}
       </div>
-      {notice && <div className="px-4 py-2 text-xs text-gold border-t border-line">{notice}</div>}
+      {notice && (
+        <div className="px-4 py-2 text-xs border-t border-line flex items-center gap-2 flex-wrap">
+          <span className="text-gold">{notice}</span>
+          {upgrade && (
+            <a href="/pricing" className="btn btn-primary no-underline text-xs px-3 py-1">Upgrade for unlimited →</a>
+          )}
+        </div>
+      )}
       <form
         className="border-t border-line p-3 flex gap-2 items-center"
         onSubmit={(e) => {

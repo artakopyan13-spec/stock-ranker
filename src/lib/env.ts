@@ -83,6 +83,14 @@ const EnvSchema = z.object({
 
   APP_URL: z.string().default("http://localhost:3000"),
   DEMO_MODE: boolFromString,
+
+  // Billing (Stripe). Optional: the pricing page renders without them; checkout is live only
+  // once the secret key + at least one price id are set (see src/lib/plans.ts billingConfigured).
+  STRIPE_SECRET_KEY: z.string().optional(),
+  STRIPE_WEBHOOK_SECRET: z.string().optional(),
+  STRIPE_PRICE_INVESTOR: z.string().optional(),
+  STRIPE_PRICE_PRO: z.string().optional(),
+  STRIPE_PRICE_ELITE: z.string().optional(),
 });
 
 export type Env = z.infer<typeof EnvSchema>;
