@@ -30,10 +30,21 @@ async function generateResearch(industry: string, industryInput: string, userId:
 
 Search the web for the current state of this industry and the notable PUBLICLY TRADED companies in it. Use real, correct stock tickers only.
 
+WRITE FOR A COMPLETE BEGINNER. The reader has NO finance and NO medical/technical background. This is the most important rule:
+- Use plain, everyday English. No jargon, no acronyms, no industry slang.
+- If a technical term is truly unavoidable, immediately explain it in plain words in the same sentence. Example: instead of "GLP-1/incretin therapies", write "weight-loss and diabetes drugs (like Ozempic and Mounjaro)". Instead of "biosimilar competition", write "cheaper copycat versions of their drug". Instead of "oncology and immunology portfolio", write "cancer and immune-system medicines".
+- Explain what the company actually MAKES or SELLS and HOW IT MAKES MONEY, like you're explaining it to a friend who knows nothing about the topic.
+
 Return:
-- a 2-3 sentence overview of where the industry stands right now (demand, tailwinds, headwinds)
-- 3 to 5 key themes or structural drivers shaping it
-- 6 to 10 notable public companies spanning the value chain: leaders, challengers, and picks-and-shovels/suppliers where relevant. For each give: the correct ticker, the company name, one sentence on what they do, its role in the industry, the bull case (why it is worth a closer look), and the single biggest risk.
+- overview: 2-3 sentences on where the industry stands right now (is demand growing or shrinking, what's helping it, what's hurting it) — in plain words.
+- themes: 3 to 5 key drivers, each written as a short plain-English phrase a beginner understands.
+- companies: 6 to 10 notable public companies spanning the value chain (big leaders, smaller challengers, and suppliers/"picks-and-shovels" where relevant). For each:
+  * ticker: the correct stock ticker.
+  * name: the company name.
+  * role: a SHORT 2-to-4-word label only (e.g. "Market leader", "Small challenger", "Key supplier", "Steady giant"). Not a sentence.
+  * whatTheyDo: ONE plain sentence — what they make or sell and how they earn money, in words anyone understands.
+  * bullCase: one plain sentence — why it could do well.
+  * keyRisk: one plain sentence — the main thing that could go wrong.
 
 Hard rules:
 - Only real, currently-listed public companies with correct tickers. If unsure of a ticker, omit that company.
