@@ -4,6 +4,8 @@ import { db } from "@/lib/db";
 import { env } from "@/lib/env";
 import { anthropic, logUsage, usageFromMessage } from "@/lib/ai/client";
 import { gateFreshAnalysis, type DenyReason } from "@/lib/quota/gate";
+import { effectiveLimits } from "@/lib/quota/settings";
+import { spendToday } from "@/lib/quota/spend";
 import { MacroBriefOutput } from "@/lib/macro/schema";
 
 const TTL_MS = 4 * 3_600_000; // refresh the calendar + news every few hours
@@ -18,27 +20,9 @@ async function latest() {
   return db().macroBrief.findFirst({ where: { kind: "brief" }, orderBy: { createdAt: "desc" } });
 }
 
-/**
- * The AI half of the Macro tab: the upcoming high-impact calendar (FOMC/CPI/jobs) and the last
- * few days of market-moving statements from major figures — sourced and dated, never invented.
- * Cached for a few hours; a fresh pull is a gated paid action that degrades to the cached copy.
- */
-export async function getOrCreateMacroBrief(opts: { userId?: string | null; ip?: string; force?: boolean } = {}): Promise<MacroBriefResult> {
+/** The AI call + store. No gating — callers (user path / cron) decide policy. Returns null on refusal. */
+async function generateBrief(userId: string | null): Promise<MacroBriefOutput | null> {
   const e = env();
-  const existing = await latest();
-  const fresh = existing ? Date.now() - existing.createdAt.getTime() < TTL_MS : false;
-  if (existing && fresh && !opts.force) return { data: JSON.parse(existing.payload), cached: true };
-
-  if (!e.ANTHROPIC_API_KEY && !e.DEMO_MODE) {
-    return existing ? { data: JSON.parse(existing.payload), cached: true } : { data: null, cached: false };
-  }
-
-  const gate = await gateFreshAnalysis({ userId: opts.userId ?? null, ip: opts.ip ?? "0.0.0.0" });
-  if (!gate.allow) {
-    if (existing) return { data: JSON.parse(existing.payload), cached: true, notice: { reason: gate.reason, message: gate.message } };
-    return { data: null, cached: false, notice: { reason: gate.reason, message: gate.message } };
-  }
-
   const today = new Date().toISOString().slice(0, 10);
   const prompt = `Today is ${today}. Build a market macro briefing by searching the web. Two parts:
 
@@ -59,12 +43,49 @@ Hard rules: only REAL, sourced, dated items — never invent a quote, a number, 
   });
 
   const searches = resp.content.filter((b): b is Anthropic.ServerToolUseBlock => b.type === "server_tool_use").length;
-  const logged = await logUsage("macro", e.NEWS_SEARCH_MODEL, usageFromMessage(resp.usage), { userId: opts.userId ?? null, webSearches: searches });
+  await logUsage("macro", e.NEWS_SEARCH_MODEL, usageFromMessage(resp.usage), { userId, webSearches: searches });
 
-  if (resp.stop_reason === "refusal" || !resp.parsed_output) {
+  if (resp.stop_reason === "refusal" || !resp.parsed_output) return null;
+  const data = resp.parsed_output;
+  await db().macroBrief.create({ data: { kind: "brief", payload: JSON.stringify(data), model: e.NEWS_SEARCH_MODEL, usdCost: 0 } });
+  return data;
+}
+
+/**
+ * User-facing macro briefing: cached for a few hours; a fresh pull is a gated paid action that
+ * degrades to the cached copy. Calendar + last-few-days market-movers, sourced and dated.
+ */
+export async function getOrCreateMacroBrief(opts: { userId?: string | null; ip?: string; force?: boolean } = {}): Promise<MacroBriefResult> {
+  const e = env();
+  const existing = await latest();
+  const fresh = existing ? Date.now() - existing.createdAt.getTime() < TTL_MS : false;
+  if (existing && fresh && !opts.force) return { data: JSON.parse(existing.payload), cached: true };
+
+  if (!e.ANTHROPIC_API_KEY && !e.DEMO_MODE) {
     return existing ? { data: JSON.parse(existing.payload), cached: true } : { data: null, cached: false };
   }
-  const data = resp.parsed_output;
-  await db().macroBrief.create({ data: { kind: "brief", payload: JSON.stringify(data), model: e.NEWS_SEARCH_MODEL, usdCost: logged.usd } });
+
+  const gate = await gateFreshAnalysis({ userId: opts.userId ?? null, ip: opts.ip ?? "0.0.0.0" });
+  if (!gate.allow) {
+    if (existing) return { data: JSON.parse(existing.payload), cached: true, notice: { reason: gate.reason, message: gate.message } };
+    return { data: null, cached: false, notice: { reason: gate.reason, message: gate.message } };
+  }
+
+  const data = await generateBrief(opts.userId ?? null);
+  if (!data) return existing ? { data: JSON.parse(existing.payload), cached: true } : { data: null, cached: false };
   return { data, cached: false };
+}
+
+/**
+ * System refresh for the scheduled cron: no per-user quota, but still respects the global kill
+ * switch and daily spend ceiling so an automated job can never blow the budget.
+ */
+export async function refreshMacroBriefSystem(): Promise<{ refreshed: boolean; reason?: string }> {
+  const e = env();
+  if (!e.ANTHROPIC_API_KEY || e.DEMO_MODE) return { refreshed: false, reason: "no_key" };
+  const limits = await effectiveLimits();
+  if (limits.killSwitchManual) return { refreshed: false, reason: "kill_switch" };
+  if ((await spendToday()) >= limits.spendCeilingUsd) return { refreshed: false, reason: "spend_ceiling" };
+  const data = await generateBrief(null);
+  return { refreshed: Boolean(data) };
 }

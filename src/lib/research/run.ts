@@ -4,6 +4,8 @@ import { db } from "@/lib/db";
 import { env } from "@/lib/env";
 import { anthropic, logUsage, usageFromMessage } from "@/lib/ai/client";
 import { gateFreshAnalysis, type DenyReason } from "@/lib/quota/gate";
+import { effectiveLimits } from "@/lib/quota/settings";
+import { spendToday } from "@/lib/quota/spend";
 import { FreshAnalysisDeniedError } from "@/lib/analysis/service";
 import { ResearchOutput } from "@/lib/research/schema";
 
@@ -20,32 +22,9 @@ async function latest(industry: string) {
   return db().industryResearch.findFirst({ where: { industry }, orderBy: { createdAt: "desc" } });
 }
 
-/**
- * Cached, gated industry research. Given an industry or theme, web-searches the current landscape
- * and returns a neutral set of publicly-traded companies to REVIEW (each with what they do, the
- * bull angle, and the key risk) — never a buy/sell call. Cached for a week; a fresh run is a gated
- * paid action, so it degrades to the cached copy (with a notice) when the user is out of quota.
- */
-export async function getOrCreateResearch(industryInput: string, opts: { userId?: string | null; ip?: string; force?: boolean } = {}): Promise<ResearchResult> {
-  const industry = norm(industryInput);
-  if (!industry) throw new FreshAnalysisDeniedError("no_key", "Type an industry or theme to research.");
+/** The AI call + store for one industry. No gating — callers decide policy. Returns null on refusal. */
+async function generateResearch(industry: string, industryInput: string, userId: string | null): Promise<ResearchOutput | null> {
   const e = env();
-
-  const existing = await latest(industry);
-  const fresh = existing ? Date.now() - existing.createdAt.getTime() < TTL_MS : false;
-  if (existing && fresh && !opts.force) return { data: JSON.parse(existing.payload), cached: true };
-
-  if (!e.ANTHROPIC_API_KEY && !e.DEMO_MODE) {
-    if (existing) return { data: JSON.parse(existing.payload), cached: true };
-    throw new FreshAnalysisDeniedError("no_key", "Research is temporarily unavailable.");
-  }
-
-  const gate = await gateFreshAnalysis({ userId: opts.userId ?? null, ip: opts.ip ?? "0.0.0.0" });
-  if (!gate.allow) {
-    if (existing) return { data: JSON.parse(existing.payload), cached: true, notice: { reason: gate.reason, message: gate.message } };
-    throw new FreshAnalysisDeniedError(gate.reason, gate.message);
-  }
-
   const today = new Date().toISOString().slice(0, 10);
   const prompt = `Today is ${today}. A user wants to research the "${industryInput}" industry/theme so they can build a watchlist of companies to analyze themselves.
 
@@ -70,14 +49,65 @@ Hard rules:
   });
 
   const searches = resp.content.filter((b): b is Anthropic.ServerToolUseBlock => b.type === "server_tool_use").length;
-  const logged = await logUsage("research", e.NEWS_SEARCH_MODEL, usageFromMessage(resp.usage), { userId: opts.userId ?? null, webSearches: searches });
+  await logUsage("research", e.NEWS_SEARCH_MODEL, usageFromMessage(resp.usage), { userId, webSearches: searches });
 
-  if (resp.stop_reason === "refusal" || !resp.parsed_output || resp.parsed_output.companies.length === 0) {
+  if (resp.stop_reason === "refusal" || !resp.parsed_output || resp.parsed_output.companies.length === 0) return null;
+  const data = { ...resp.parsed_output, companies: resp.parsed_output.companies.map((c) => ({ ...c, ticker: c.ticker.toUpperCase() })) };
+  await db().industryResearch.create({ data: { industry, payload: JSON.stringify(data), model: e.NEWS_SEARCH_MODEL, usdCost: 0 } });
+  return data;
+}
+
+/**
+ * User-facing industry research: cached a week; a fresh run is a gated paid action that degrades
+ * to the cached copy. Returns publicly-traded companies to REVIEW (never a buy/sell call).
+ */
+export async function getOrCreateResearch(industryInput: string, opts: { userId?: string | null; ip?: string; force?: boolean } = {}): Promise<ResearchResult> {
+  const industry = norm(industryInput);
+  if (!industry) throw new FreshAnalysisDeniedError("no_key", "Type an industry or theme to research.");
+  const e = env();
+
+  const existing = await latest(industry);
+  const fresh = existing ? Date.now() - existing.createdAt.getTime() < TTL_MS : false;
+  if (existing && fresh && !opts.force) return { data: JSON.parse(existing.payload), cached: true };
+
+  if (!e.ANTHROPIC_API_KEY && !e.DEMO_MODE) {
+    if (existing) return { data: JSON.parse(existing.payload), cached: true };
+    throw new FreshAnalysisDeniedError("no_key", "Research is temporarily unavailable.");
+  }
+
+  const gate = await gateFreshAnalysis({ userId: opts.userId ?? null, ip: opts.ip ?? "0.0.0.0" });
+  if (!gate.allow) {
+    if (existing) return { data: JSON.parse(existing.payload), cached: true, notice: { reason: gate.reason, message: gate.message } };
+    throw new FreshAnalysisDeniedError(gate.reason, gate.message);
+  }
+
+  const data = await generateResearch(industry, industryInput, opts.userId ?? null);
+  if (!data) {
     if (existing) return { data: JSON.parse(existing.payload), cached: true };
     throw new FreshAnalysisDeniedError("no_key", "Couldn't build research for that. Try a broader or clearer industry name.");
   }
-
-  const data = { ...resp.parsed_output, companies: resp.parsed_output.companies.map((c) => ({ ...c, ticker: c.ticker.toUpperCase() })) };
-  await db().industryResearch.create({ data: { industry, payload: JSON.stringify(data), model: e.NEWS_SEARCH_MODEL, usdCost: logged.usd } });
   return { data, cached: false };
 }
+
+/** System refresh for the scheduled cron — no per-user quota, but respects kill switch + spend ceiling. */
+export async function refreshResearchSystem(industryInput: string): Promise<{ refreshed: boolean; reason?: string }> {
+  const e = env();
+  if (!e.ANTHROPIC_API_KEY || e.DEMO_MODE) return { refreshed: false, reason: "no_key" };
+  const limits = await effectiveLimits();
+  if (limits.killSwitchManual) return { refreshed: false, reason: "kill_switch" };
+  if ((await spendToday()) >= limits.spendCeilingUsd) return { refreshed: false, reason: "spend_ceiling" };
+  const data = await generateResearch(norm(industryInput), industryInput, null);
+  return { refreshed: Boolean(data) };
+}
+
+/** The industries kept warm by the scheduler so the Research tab is instant + current. */
+export const POPULAR_INDUSTRIES = [
+  "Artificial intelligence",
+  "Semiconductors",
+  "Nuclear energy",
+  "Cybersecurity",
+  "Weight-loss drugs (GLP-1)",
+  "Defense",
+  "Quantum computing",
+  "Space",
+];
