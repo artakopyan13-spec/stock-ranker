@@ -5,6 +5,7 @@ import Link from "next/link";
 import type { Analysis } from "@/lib/analysis/schema";
 import type { CompanyData } from "@/lib/data/company";
 import { FCF_EMOJI } from "@/lib/analysis/schema";
+import { computeScorecard, type Scorecard } from "@/lib/scorecard/compute";
 import { LineChart } from "@/components/charts";
 import { InfoDot } from "@/components/Info";
 import { money, multiple, pct, price as fmtPrice } from "@/lib/format";
@@ -17,18 +18,32 @@ interface Col {
   analysis: Analysis | null;
   loading: boolean;
 }
+interface EnrichedCol extends Col {
+  sc: Scorecard | null;
+}
 
 const latestAnnual = (c: CompanyData | null) => (c && c.annual.length ? c.annual[c.annual.length - 1] : null);
 function marginOf(n: number | null | undefined, d: number | null | undefined): number | null {
   return n !== null && n !== undefined && d ? (n / d) * 100 : null;
+}
+function ratio(n: number | null | undefined, d: number | null | undefined): number | null {
+  return n !== null && n !== undefined && d ? n / d : null;
+}
+/** Color for a 0–100 score/percentile. */
+function toneColor(p: number | null): string {
+  if (p === null) return "var(--muted)";
+  return p >= 70 ? "var(--green)" : p >= 45 ? "var(--gold)" : "var(--red)";
+}
+function gradeColor(g: string): string {
+  return g.startsWith("A") ? "var(--green)" : g.startsWith("B") ? "var(--gold)" : "var(--red)";
 }
 
 interface Row {
   label: string;
   info?: string;
   fmt: (c: Col) => React.ReactNode;
-  num?: (c: Col) => number | null; // numeric value for best/worst highlighting
-  better?: "high" | "low"; // which end is "better"
+  num?: (c: Col) => number | null;
+  better?: "high" | "low";
 }
 
 export function Compare({ initial }: { initial: string[] }) {
@@ -63,32 +78,44 @@ export function Compare({ initial }: { initial: string[] }) {
   const remove = (s: string) => setTickers(tickers.filter((t) => t !== s));
 
   const shown = tickers.map((t) => cols[t]).filter((c): c is Col => Boolean(c));
+  const enriched: EnrichedCol[] = shown.map((c) => ({ ...c, sc: c.company ? computeScorecard(c.company) : null }));
   const anyLoading = shown.some((c) => c.loading);
 
-  const fcfMargin = (c: Col): number | null => {
-    const fcf = latestAnnual(c.company)?.fcf ?? c.analysis?.fcf.ttm.value ?? null;
-    const rev = latestAnnual(c.company)?.revenue ?? c.analysis?.growth.revenueTTM.value ?? null;
-    return marginOf(fcf, rev);
+  // ---- numeric helpers reused across KPI rows ----
+  const mcapOf = (c: Col) => c.analysis?.price.marketCap.value ?? c.company?.overview.keyStats.marketCap ?? null;
+  const fcfMargin = (c: Col): number | null => marginOf(latestAnnual(c.company)?.fcf ?? c.analysis?.fcf.ttm.value ?? null, latestAnnual(c.company)?.revenue ?? null);
+  const netMargin = (c: Col) => marginOf(latestAnnual(c.company)?.netIncome, latestAnnual(c.company)?.revenue);
+  const roe = (c: Col) => marginOf(latestAnnual(c.company)?.netIncome, latestAnnual(c.company)?.equity);
+  const debtEquity = (c: Col) => ratio(latestAnnual(c.company)?.totalDebt, latestAnnual(c.company)?.equity);
+  const netCash = (c: Col) => {
+    const a = latestAnnual(c.company);
+    return a && a.cash !== null && a.totalDebt !== null ? a.cash - a.totalDebt : null;
   };
+  const priceToSales = (c: Col) => ratio(mcapOf(c), latestAnnual(c.company)?.revenue);
+  const cur = (c: Col) => c.company?.currency ?? c.analysis?.meta.currency ?? "USD";
 
   const rows: Row[] = [
     { label: "AI rating", info: "rating", fmt: (c) => (c.analysis ? `${c.analysis.rating.score}/10 ${c.analysis.rating.action}` : <Link href={`/t/${c.symbol}`} className="text-purple text-xs">analyze →</Link>), num: (c) => c.analysis?.rating.score ?? null, better: "high" },
     { label: "Price", fmt: (c) => fmtPrice(c.analysis?.price.current.value ?? null, c.analysis?.meta.currency ?? "USD") },
-    { label: "Market cap", info: "market-cap", fmt: (c) => money(c.analysis?.price.marketCap.value ?? c.company?.overview.keyStats.marketCap ?? null, c.company?.currency ?? "USD") },
-    { label: "Revenue (latest FY)", fmt: (c) => money(latestAnnual(c.company)?.revenue ?? null, c.company?.currency ?? "USD") },
-    { label: "Free cash flow", info: "fcf", fmt: (c) => money(latestAnnual(c.company)?.fcf ?? c.analysis?.fcf.ttm.value ?? null, c.company?.currency ?? "USD"), num: (c) => latestAnnual(c.company)?.fcf ?? c.analysis?.fcf.ttm.value ?? null, better: "high" },
-    { label: "FCF margin", info: "fcf-margin", fmt: (c) => pct(fcfMargin(c)), num: fcfMargin, better: "high" },
-    { label: "FCF verdict", info: "fcf", fmt: (c) => (c.analysis ? `${FCF_EMOJI[c.analysis.fcf.verdict]} ${c.analysis.fcf.verdict}` : "—") },
+    { label: "Market cap", info: "market-cap", fmt: (c) => money(mcapOf(c), cur(c)), num: mcapOf, better: "high" },
+    { label: "Revenue (latest FY)", fmt: (c) => money(latestAnnual(c.company)?.revenue ?? null, cur(c)), num: (c) => latestAnnual(c.company)?.revenue ?? null, better: "high" },
     { label: "Rev growth (YoY)", info: "revenue-growth", fmt: (c) => pct(c.analysis?.growth.revenueGrowthYoYLatestQ.value ?? null, 1, true), num: (c) => c.analysis?.growth.revenueGrowthYoYLatestQ.value ?? null, better: "high" },
     { label: "Gross margin", info: "gross-margin", fmt: (c) => pct(c.analysis?.growth.grossMarginPct.value ?? marginOf(latestAnnual(c.company)?.grossProfit, latestAnnual(c.company)?.revenue)), num: (c) => c.analysis?.growth.grossMarginPct.value ?? marginOf(latestAnnual(c.company)?.grossProfit, latestAnnual(c.company)?.revenue), better: "high" },
     { label: "Operating margin", info: "operating-margin", fmt: (c) => pct(c.analysis?.growth.operatingMarginPct.value ?? marginOf(latestAnnual(c.company)?.operatingIncome, latestAnnual(c.company)?.revenue)), num: (c) => c.analysis?.growth.operatingMarginPct.value ?? marginOf(latestAnnual(c.company)?.operatingIncome, latestAnnual(c.company)?.revenue), better: "high" },
+    { label: "Net margin", fmt: (c) => pct(netMargin(c)), num: netMargin, better: "high" },
+    { label: "Return on equity", fmt: (c) => pct(roe(c)), num: roe, better: "high" },
+    { label: "Free cash flow", info: "fcf", fmt: (c) => money(latestAnnual(c.company)?.fcf ?? c.analysis?.fcf.ttm.value ?? null, cur(c)), num: (c) => latestAnnual(c.company)?.fcf ?? c.analysis?.fcf.ttm.value ?? null, better: "high" },
+    { label: "FCF margin", info: "fcf-margin", fmt: (c) => pct(fcfMargin(c)), num: fcfMargin, better: "high" },
+    { label: "FCF verdict", info: "fcf", fmt: (c) => (c.analysis ? `${FCF_EMOJI[c.analysis.fcf.verdict]} ${c.analysis.fcf.verdict}` : "—") },
+    { label: "Net cash / (debt)", info: "net-cash", fmt: (c) => money(netCash(c), cur(c)), num: netCash, better: "high" },
+    { label: "Debt / equity", info: "debt-to-equity", fmt: (c) => multiple(debtEquity(c)), num: debtEquity, better: "low" },
     { label: "Trailing P/E", info: "pe", fmt: (c) => multiple(c.analysis?.valuation.trailingPE.value ?? null), num: (c) => c.analysis?.valuation.trailingPE.value ?? null, better: "low" },
     { label: "Forward P/E", info: "forward-pe", fmt: (c) => multiple(c.analysis?.valuation.forwardPE.value ?? null), num: (c) => c.analysis?.valuation.forwardPE.value ?? null, better: "low" },
+    { label: "P/S", info: "ps", fmt: (c) => multiple(priceToSales(c)), num: priceToSales, better: "low" },
     { label: "P/FCF", info: "pfcf", fmt: (c) => multiple(c.analysis?.valuation.priceToFcf.value ?? null), num: (c) => c.analysis?.valuation.priceToFcf.value ?? null, better: "low" },
     { label: "Dividend yield", info: "dividend-yield", fmt: (c) => pct(c.company?.overview.keyStats.dividendYieldPct ?? null), num: (c) => c.company?.overview.keyStats.dividendYieldPct ?? null, better: "high" },
   ];
 
-  // best/worst per row for green/red highlighting
   const marks = (r: Row): Map<string, "best" | "worst"> => {
     const m = new Map<string, "best" | "worst">();
     if (!r.num || !r.better) return m;
@@ -102,21 +129,26 @@ export function Compare({ initial }: { initial: string[] }) {
     return m;
   };
 
-  const withData = shown.filter((c) => c.company && c.company.annual.length >= 2);
+  // ---- charts: revenue + net margin over time ----
+  const withData = enriched.filter((c) => c.company && c.company.annual.length >= 2);
   const refCo = withData.slice().sort((a, b) => b.company!.annual.length - a.company!.annual.length)[0];
   const maxLen = refCo ? refCo.company!.annual.length : 0;
   const labels = refCo ? refCo.company!.annual.map((r) => r.period.slice(0, 4)) : [];
-  const series = withData.map((c, i) => {
-    const arr = c.company!.annual.map((r) => (r.revenue === null ? null : r.revenue / 1e9));
-    const padded = Array(Math.max(0, maxLen - arr.length)).fill(null).concat(arr);
-    return { name: c.symbol, color: COLORS[i % COLORS.length], values: padded };
-  });
+  const pad = <T,>(arr: (T | null)[]) => Array<T | null>(Math.max(0, maxLen - arr.length)).fill(null).concat(arr);
+  const revSeries = withData.map((c, i) => ({ name: c.symbol, color: COLORS[i % COLORS.length], values: pad(c.company!.annual.map((r) => (r.revenue === null ? null : r.revenue / 1e9))) }));
+  const marginSeries = withData.map((c, i) => ({ name: c.symbol, color: COLORS[i % COLORS.length], values: pad(c.company!.annual.map((r) => marginOf(r.netIncome, r.revenue))) }));
+
+  // ---- scorecard pillar matrix rows ----
+  const pillarKeys = enriched.find((c) => c.sc)?.sc?.pillars.map((p) => p.name) ?? [];
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
+      {/* ticker input */}
       <div className="flex flex-wrap items-center gap-2">
-        {tickers.map((t) => (
-          <span key={t} className="chip chip-muted">{t}{" "}<button type="button" onClick={() => remove(t)} className="text-red">×</button></span>
+        {tickers.map((t, i) => (
+          <span key={t} className="chip chip-muted" style={{ borderColor: COLORS[i % COLORS.length] }}>
+            <span style={{ color: COLORS[i % COLORS.length] }}>●</span> {t} <button type="button" onClick={() => remove(t)} className="text-red ml-1">×</button>
+          </span>
         ))}
         {tickers.length < 5 && (
           <span className="inline-flex gap-1">
@@ -127,18 +159,85 @@ export function Compare({ initial }: { initial: string[] }) {
         {anyLoading && <span className="text-xs text-muted">loading…</span>}
       </div>
 
-      {tickers.length === 0 && <div className="card p-8 text-center text-muted">Add up to 5 tickers to compare. Green marks the best value in each row, red the weakest.</div>}
+      {tickers.length === 0 && (
+        <div className="card p-8 text-center text-muted">
+          Add up to 5 tickers to compare. You&rsquo;ll get a full profile, a quality grade, strengths &amp; risks, and every KPI side by side — <span className="text-green">green</span> marks the best in each row, <span className="text-red">red</span> the weakest.
+        </div>
+      )}
 
-      {shown.length > 0 && (
+      {/* 1 — company profile cards */}
+      {enriched.length > 0 && (
+        <div className="flex gap-3 overflow-x-auto pb-1">
+          {enriched.map((c, i) => (
+            <CompanyCard key={c.symbol} col={c} color={COLORS[i % COLORS.length]} />
+          ))}
+        </div>
+      )}
+
+      {/* 2 — scorecard pillar matrix */}
+      {pillarKeys.length > 0 && (
         <div className="card overflow-x-auto">
+          <div className="px-4 pt-3 text-sm font-semibold flex items-center gap-1">Quality Scorecard <span className="text-xs text-muted font-normal">· sector-adjusted, code-computed</span></div>
+          <table className="tbl w-full text-sm min-w-[560px]">
+            <thead>
+              <tr>
+                <th className="text-left text-xs text-muted pl-4">Pillar</th>
+                {enriched.map((c) => (
+                  <th key={c.symbol} className="text-right pr-4">{c.symbol}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {/* overall */}
+              <tr>
+                <td className="text-xs font-semibold pl-4">Overall grade</td>
+                {enriched.map((c) => (
+                  <td key={c.symbol} className="text-right pr-4">
+                    {c.sc ? (
+                      <span className="inline-flex items-center gap-2 justify-end">
+                        <ScoreBar pctVal={c.sc.overall.pct} />
+                        <span className="font-bold tabular-nums" style={{ color: gradeColor(c.sc.overall.grade) }}>{c.sc.overall.grade}</span>
+                      </span>
+                    ) : "—"}
+                  </td>
+                ))}
+              </tr>
+              {pillarKeys.map((name) => (
+                <tr key={name}>
+                  <td className="text-xs text-muted pl-4">{name}</td>
+                  {enriched.map((c) => {
+                    const p = c.sc?.pillars.find((x) => x.name === name);
+                    const pv = p ? (p.score / p.max) * 100 : null;
+                    return (
+                      <td key={c.symbol} className="text-right pr-4">
+                        {p ? (
+                          <span className="inline-flex items-center gap-2 justify-end">
+                            <ScoreBar pctVal={pv} />
+                            <span className="tabular-nums text-xs w-12 text-right" style={{ color: toneColor(pv) }}>{p.score}/{p.max}</span>
+                          </span>
+                        ) : "—"}
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* 3 — KPI table */}
+      {enriched.length > 0 && (
+        <div className="card overflow-x-auto">
+          <div className="px-4 pt-3 text-sm font-semibold">Head-to-head KPIs</div>
           <table className="tbl w-full text-sm min-w-[560px]">
             <thead>
               <tr>
                 <th></th>
-                {shown.map((c) => (
-                  <th key={c.symbol} className="text-right">
+                {enriched.map((c) => (
+                  <th key={c.symbol} className="text-right pr-4">
                     <Link href={`/t/${c.symbol}`} className="no-underline text-text">{c.symbol}</Link>
-                    {c.company && <div className="text-[0.65rem] text-muted font-normal truncate max-w-[120px] ml-auto">{c.company.overview.sector ?? ""}</div>}
+                    {c.company && <div className="text-[0.65rem] text-muted font-normal truncate max-w-[120px] ml-auto">{c.company.overview.industry ?? c.company.overview.sector ?? ""}</div>}
                   </th>
                 ))}
               </tr>
@@ -148,12 +247,14 @@ export function Compare({ initial }: { initial: string[] }) {
                 const mk = marks(r);
                 return (
                   <tr key={r.label}>
-                    <td className="text-muted text-xs whitespace-nowrap">{r.label} {r.info && <InfoDot id={r.info} />}</td>
-                    {shown.map((c) => {
+                    <td className="text-muted text-xs whitespace-nowrap pl-4">{r.label} {r.info && <InfoDot id={r.info} />}</td>
+                    {enriched.map((c) => {
                       const mark = mk.get(c.symbol);
                       const cls = mark === "best" ? "text-green font-semibold" : mark === "worst" ? "text-red" : "";
                       return (
-                        <td key={c.symbol} className={`text-right ${cls}`}>{c.company === null && c.analysis === null && !c.loading ? <span className="text-dim">not found</span> : r.fmt(c)}</td>
+                        <td key={c.symbol} className={`text-right pr-4 tabular-nums ${cls}`}>
+                          {c.company === null && c.analysis === null && !c.loading ? <span className="text-dim">not found</span> : r.fmt(c)}
+                        </td>
                       );
                     })}
                   </tr>
@@ -164,9 +265,88 @@ export function Compare({ initial }: { initial: string[] }) {
         </div>
       )}
 
+      {/* 4 — charts */}
       {maxLen > 0 && (
-        <div className="card p-4 md:p-5">
-          <LineChart title="Revenue over time ($B)" unit="" labels={labels} series={series} height={200} area />
+        <div className="grid gap-4 md:grid-cols-2">
+          <div className="card p-4 md:p-5">
+            <LineChart title="Revenue over time ($B)" unit="" labels={labels} series={revSeries} height={200} area />
+          </div>
+          <div className="card p-4 md:p-5">
+            <LineChart title="Net profit margin over time (%)" unit="%" labels={labels} series={marginSeries} height={200} />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Small 0–100 fill bar, colored by score. */
+function ScoreBar({ pctVal }: { pctVal: number | null }) {
+  const w = pctVal === null ? 0 : Math.max(3, Math.min(100, pctVal));
+  return (
+    <span className="inline-block h-1.5 rounded-full overflow-hidden align-middle" style={{ width: 64, background: "var(--card2)" }}>
+      <span className="block h-full rounded-full" style={{ width: `${w}%`, background: toneColor(pctVal) }} />
+    </span>
+  );
+}
+
+/** Per-company profile: what they do, grade, rating, and clear + / − lists. */
+function CompanyCard({ col, color }: { col: EnrichedCol; color: string }) {
+  const [open, setOpen] = useState(false);
+  const o = col.company?.overview;
+  const sc = col.sc;
+  const notFound = col.company === null && col.analysis === null && !col.loading;
+
+  return (
+    <div className="card p-4 shrink-0 w-[260px] flex flex-col gap-2" style={{ borderTop: `3px solid ${color}` }}>
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <Link href={`/t/${col.symbol}`} className="no-underline text-text font-semibold">{col.symbol}</Link>
+          <div className="text-[0.7rem] text-muted truncate">{o?.industry ?? o?.sector ?? (col.loading ? "loading…" : notFound ? "not found" : "")}</div>
+        </div>
+        {sc && (
+          <span className="chip" style={{ color: gradeColor(sc.overall.grade), borderColor: gradeColor(sc.overall.grade) }} title={`${sc.overall.verdict} · ${sc.overall.pct}%`}>
+            {sc.overall.grade}
+          </span>
+        )}
+      </div>
+
+      <div className="flex flex-wrap gap-1.5 text-[0.68rem]">
+        {col.analysis && <span className="chip chip-muted">AI {col.analysis.rating.score}/10 · {col.analysis.rating.action}</span>}
+        {o?.sector && <span className="chip chip-muted">{o.sector}</span>}
+      </div>
+
+      <div className="flex items-baseline gap-2 text-sm">
+        <span className="font-semibold">{fmtPrice(col.analysis?.price.current.value ?? null, col.analysis?.meta.currency ?? "USD")}</span>
+        <span className="text-xs text-muted">{money(col.analysis?.price.marketCap.value ?? o?.keyStats.marketCap ?? null, col.company?.currency ?? "USD")} cap</span>
+      </div>
+
+      {o?.description && (
+        <p className={`text-[0.72rem] text-muted leading-relaxed ${open ? "" : "line-clamp-3"}`}>
+          {o.description}
+        </p>
+      )}
+      {o?.description && o.description.length > 160 && (
+        <button type="button" className="text-[0.7rem] text-purple text-left" onClick={() => setOpen((v) => !v)}>
+          {open ? "less" : "what they do →"}
+        </button>
+      )}
+
+      {sc && (sc.overall.strengths.length > 0 || sc.overall.watch.length > 0) && (
+        <div className="mt-1 space-y-1 text-[0.72rem]">
+          {sc.overall.strengths.map((s) => (
+            <div key={s} className="flex gap-1.5"><span className="text-green">+</span><span>{s}</span></div>
+          ))}
+          {sc.overall.watch.map((s) => (
+            <div key={s} className="flex gap-1.5"><span className="text-red">−</span><span>{s}</span></div>
+          ))}
+        </div>
+      )}
+
+      {o && (o.employees || o.website) && (
+        <div className="mt-auto pt-2 text-[0.66rem] text-muted flex flex-wrap gap-x-3 gap-y-0.5">
+          {o.employees ? <span>{o.employees.toLocaleString()} employees</span> : null}
+          {o.website ? <a href={o.website} target="_blank" rel="noopener noreferrer" className="text-purple no-underline truncate">site ↗</a> : null}
         </div>
       )}
     </div>
