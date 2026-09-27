@@ -174,7 +174,7 @@ model User {
   dailyQuota    Int?      // per-user override of FREE_DAILY_FRESH_ANALYSES
   plan          String    @default("free") // free | investor | pro | elite (see src/lib/plans.ts)
   planRenewsAt  DateTime? // end of the current paid period (set on Stripe checkout success)
-  stripeCustomerId String? @unique
+  stripeCustomerId String? // Stripe customer id (looked up via updateMany in the webhook; no unique constraint so `db push` stays additive)
   createdAt     DateTime  @default(now())
   onboardedAt   DateTime? // set when the user finishes the welcome questions
   onboarding    String?   // JSON of onboarding answers
