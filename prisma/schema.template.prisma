@@ -233,6 +233,28 @@ model Committee {
   @@index([symbol, createdAt])
 }
 
+model IndustryResearch {
+  id        String   @id @default(cuid())
+  industry  String   // normalized (lowercased) industry/theme key
+  payload   String   // JSON ResearchOutput
+  model     String
+  usdCost   Float    @default(0)
+  createdAt DateTime @default(now())
+
+  @@index([industry, createdAt])
+}
+
+model MacroBrief {
+  id        String   @id @default(cuid())
+  kind      String   // "brief" — calendar + market-moving news snapshot
+  payload   String   // JSON MacroBriefOutput
+  model     String
+  usdCost   Float    @default(0)
+  createdAt DateTime @default(now())
+
+  @@index([kind, createdAt])
+}
+
 model Account {
   id                String  @id @default(cuid())
   userId            String
