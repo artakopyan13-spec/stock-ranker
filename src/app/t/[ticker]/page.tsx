@@ -7,6 +7,7 @@ import { currentUser } from "@/auth";
 import { AnalysisStream } from "@/components/AnalysisStream";
 import { CompanyTabs } from "@/components/company";
 import { AddToWatchlist } from "@/components/AddToWatchlist";
+import { ExcelExportButton } from "@/components/ExcelExportButton";
 import { shareUrlFor } from "@/lib/share";
 
 export const dynamic = "force-dynamic";
@@ -38,7 +39,10 @@ export default async function TickerPage({ params, searchParams }: PageProps<"/t
     <div className="space-y-3">
       <div className="flex items-center justify-between gap-2 flex-wrap">
         <div className="text-lg font-semibold">{symbol}</div>
-        {!e.DEMO_MODE && <AddToWatchlist symbol={symbol} />}
+        <div className="flex items-center gap-2">
+          {!e.DEMO_MODE && <ExcelExportButton symbol={symbol} />}
+          {!e.DEMO_MODE && <AddToWatchlist symbol={symbol} />}
+        </div>
       </div>
       <CompanyTabs symbol={symbol} analysis={analysis} signedIn={!!user} initialTab={typeof sp.tab === "string" ? sp.tab : undefined} />
     </div>
