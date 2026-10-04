@@ -8,6 +8,7 @@ import { AnalysisStream } from "@/components/AnalysisStream";
 import { CompanyTabs } from "@/components/company";
 import { AddToWatchlist } from "@/components/AddToWatchlist";
 import { ExcelExportButton } from "@/components/ExcelExportButton";
+import { StockKpiStrip } from "@/components/StockKpiStrip";
 import { shareUrlFor } from "@/lib/share";
 
 export const dynamic = "force-dynamic";
@@ -44,6 +45,7 @@ export default async function TickerPage({ params, searchParams }: PageProps<"/t
           {!e.DEMO_MODE && <AddToWatchlist symbol={symbol} />}
         </div>
       </div>
+      {stored && <StockKpiStrip analysis={stored.analysis} />}
       <CompanyTabs symbol={symbol} analysis={analysis} signedIn={!!user} initialTab={typeof sp.tab === "string" ? sp.tab : undefined} />
     </div>
   );
