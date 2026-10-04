@@ -42,7 +42,7 @@ export function usageFromMessage(u: Anthropic.Usage | Anthropic.MessageDeltaUsag
   };
 }
 
-export type UsageKind = "analysis" | "news_search" | "earnings_search" | "batch_analysis" | "chat" | "committee" | "command" | "portfolio" | "portfolio_review" | "research" | "macro";
+export type UsageKind = "analysis" | "news_search" | "earnings_search" | "batch_analysis" | "chat" | "committee" | "command" | "portfolio" | "portfolio_review" | "research" | "macro" | "earnings";
 
 export async function logUsage(
   kind: UsageKind,

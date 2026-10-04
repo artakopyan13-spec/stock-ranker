@@ -255,6 +255,17 @@ model MacroBrief {
   @@index([kind, createdAt])
 }
 
+model EarningsReport {
+  id        String   @id @default(cuid())
+  symbol    String
+  payload   String   // JSON EarningsReportOutput
+  model     String
+  usdCost   Float    @default(0)
+  createdAt DateTime @default(now())
+
+  @@index([symbol, createdAt])
+}
+
 model Account {
   id                String  @id @default(cuid())
   userId            String

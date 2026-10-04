@@ -7,6 +7,7 @@ import { compact, dateLabel, money, multiple, pct, price as fmtPrice } from "@/l
 import { SkeletonCard, Card, Tag } from "@/components/ui";
 import { ChatPanel } from "@/components/ChatPanel";
 import { Committee } from "@/components/Committee";
+import { Earnings } from "@/components/Earnings";
 import { Scorecard } from "@/components/Scorecard";
 import { TimeMachine } from "@/components/TimeMachine";
 
@@ -293,10 +294,10 @@ export function Overview({ data }: { data: CompanyData }) {
 }
 
 // ---------- Tab wrapper ----------
-type TabId = "analysis" | "scorecard" | "committee" | "copilot" | "timemachine" | "financials" | "charts" | "overview";
+type TabId = "analysis" | "scorecard" | "earnings" | "committee" | "copilot" | "timemachine" | "financials" | "charts" | "overview";
 const DATA_TABS: TabId[] = ["scorecard", "financials", "charts", "overview"];
 
-const TAB_IDS: TabId[] = ["analysis", "scorecard", "committee", "copilot", "timemachine", "financials", "charts", "overview"];
+const TAB_IDS: TabId[] = ["analysis", "scorecard", "earnings", "committee", "copilot", "timemachine", "financials", "charts", "overview"];
 
 export function CompanyTabs({ symbol, analysis, signedIn = false, initialTab }: { symbol: string; analysis: React.ReactNode; signedIn?: boolean; initialTab?: string }) {
   const [tab, setTab] = useState<TabId>(TAB_IDS.includes(initialTab as TabId) ? (initialTab as TabId) : "analysis");
@@ -318,6 +319,7 @@ export function CompanyTabs({ symbol, analysis, signedIn = false, initialTab }: 
   const tabs: Array<[TabId, string]> = [
     ["analysis", "AI analysis"],
     ["scorecard", "Scorecard"],
+    ["earnings", "Earnings"],
     ["committee", "Committee"],
     ["copilot", "Ask this stock"],
     ["timemachine", "Time machine"],
@@ -333,6 +335,7 @@ export function CompanyTabs({ symbol, analysis, signedIn = false, initialTab }: 
         ))}
       </div>
       <div hidden={tab !== "analysis"}>{analysis}</div>
+      {tab === "earnings" && <Earnings symbol={symbol} signedIn={signedIn} />}
       {tab === "committee" && <Committee symbol={symbol} signedIn={signedIn} />}
       {tab === "timemachine" && <TimeMachine symbol={symbol} />}
       {tab === "copilot" && (
