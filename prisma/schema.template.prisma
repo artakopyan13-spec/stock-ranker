@@ -266,6 +266,17 @@ model EarningsReport {
   @@index([symbol, createdAt])
 }
 
+model DeepAnalysis {
+  id        String   @id @default(cuid())
+  symbol    String
+  payload   String   // JSON DeepAnalysisOutput
+  model     String
+  usdCost   Float    @default(0)
+  createdAt DateTime @default(now())
+
+  @@index([symbol, createdAt])
+}
+
 model Account {
   id                String  @id @default(cuid())
   userId            String
