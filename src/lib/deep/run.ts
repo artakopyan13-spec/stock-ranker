@@ -4,6 +4,9 @@ import { db } from "@/lib/db";
 import { env } from "@/lib/env";
 import { anthropic, logUsage, usageFromMessage } from "@/lib/ai/client";
 import { gateFreshAnalysis, type DenyReason } from "@/lib/quota/gate";
+import { effectiveLimits } from "@/lib/quota/settings";
+import { spendToday } from "@/lib/quota/spend";
+import { allWatchedSymbols } from "@/lib/watchlists";
 import { FreshAnalysisDeniedError } from "@/lib/analysis/service";
 import { DeepAnalysisOutput } from "@/lib/deep/schema";
 
@@ -88,4 +91,31 @@ export async function getOrCreateDeep(symbolInput: string, opts: { userId?: stri
 export async function getCachedDeep(symbolInput: string): Promise<DeepAnalysisOutput | null> {
   const row = await latest(symbolInput.toUpperCase());
   return row ? (JSON.parse(row.payload) as DeepAnalysisOutput) : null;
+}
+
+/** Watched symbols whose EXISTING deep analysis has gone stale, oldest first (keep-warm only —
+ *  never generates brand-new reports, so the scheduler can't balloon cost). */
+export async function staleWatchedDeepSymbols(limit = 4): Promise<string[]> {
+  const watched = (await allWatchedSymbols()).map((s) => s.toUpperCase());
+  if (watched.length === 0) return [];
+  const cutoff = Date.now() - TTL_MS;
+  const rows = await db().deepAnalysis.findMany({ where: { symbol: { in: watched } }, orderBy: { createdAt: "desc" }, select: { symbol: true, createdAt: true } });
+  const latestBySym = new Map<string, Date>();
+  for (const r of rows) if (!latestBySym.has(r.symbol)) latestBySym.set(r.symbol, r.createdAt);
+  return [...latestBySym.entries()]
+    .filter(([, d]) => d.getTime() < cutoff)
+    .sort((a, b) => a[1].getTime() - b[1].getTime())
+    .slice(0, limit)
+    .map(([s]) => s);
+}
+
+/** System refresh for the scheduler — no per-user quota, but respects kill switch + spend ceiling. */
+export async function refreshDeepSystem(symbol: string): Promise<{ refreshed: boolean; reason?: string }> {
+  const e = env();
+  if (!e.ANTHROPIC_API_KEY || e.DEMO_MODE) return { refreshed: false, reason: "no_key" };
+  const limits = await effectiveLimits();
+  if (limits.killSwitchManual) return { refreshed: false, reason: "kill_switch" };
+  if ((await spendToday()) >= limits.spendCeilingUsd) return { refreshed: false, reason: "spend_ceiling" };
+  const data = await generate(symbol.toUpperCase(), null);
+  return { refreshed: Boolean(data) };
 }

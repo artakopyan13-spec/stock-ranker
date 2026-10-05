@@ -9,6 +9,7 @@ import { CompanyTabs } from "@/components/company";
 import { AddToWatchlist } from "@/components/AddToWatchlist";
 import { ExcelExportButton } from "@/components/ExcelExportButton";
 import { StockKpiStrip } from "@/components/StockKpiStrip";
+import { getCachedDeep } from "@/lib/deep/run";
 import { shareUrlFor } from "@/lib/share";
 
 export const dynamic = "force-dynamic";
@@ -24,7 +25,7 @@ export default async function TickerPage({ params, searchParams }: PageProps<"/t
   const symbol = ticker.toUpperCase();
   if (!/^[A-Z0-9.\-^=]{1,12}$/.test(symbol)) notFound();
   const e = env();
-  const [stored, user] = await Promise.all([getLatestAnalysis(symbol), currentUser()]);
+  const [stored, user, cachedDeep] = await Promise.all([getLatestAnalysis(symbol), currentUser(), getCachedDeep(symbol).catch(() => null)]);
   if (e.DEMO_MODE && !stored) notFound();
   const tickerRow = await db().ticker.findUnique({ where: { symbol } });
   const shareUrl = tickerRow ? shareUrlFor("", tickerRow.shareToken) : null;
@@ -45,7 +46,7 @@ export default async function TickerPage({ params, searchParams }: PageProps<"/t
           {!e.DEMO_MODE && <AddToWatchlist symbol={symbol} />}
         </div>
       </div>
-      {stored && <StockKpiStrip analysis={stored.analysis} />}
+      {stored && <StockKpiStrip analysis={stored.analysis} deepOverall={cachedDeep?.scorecard.overall ?? null} />}
       <CompanyTabs symbol={symbol} analysis={analysis} signedIn={!!user} initialTab={typeof sp.tab === "string" ? sp.tab : undefined} />
     </div>
   );

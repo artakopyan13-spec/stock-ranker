@@ -3,6 +3,7 @@ import { checkCronAuth, unauthorized } from "@/lib/auth";
 import { runRefresh, type RefreshMode } from "@/lib/cron/refresh";
 import { refreshMacroBriefSystem } from "@/lib/macro/brief";
 import { refreshResearchSystem, POPULAR_INDUSTRIES } from "@/lib/research/run";
+import { refreshDeepSystem, staleWatchedDeepSymbols } from "@/lib/deep/run";
 import { toApiError } from "@/lib/api-errors";
 import { env } from "@/lib/env";
 
@@ -28,7 +29,16 @@ export async function GET(req: NextRequest): Promise<Response> {
       refreshMacroBriefSystem().catch((e) => ({ refreshed: false, reason: String(e) })),
       ...industries.map((ind) => refreshResearchSystem(ind).catch((e) => ({ refreshed: false, reason: String(e) }))),
     ]);
-    return Response.json({ ...refresh, macro, research: industries.map((industry, i) => ({ industry, ...research[i] })) });
+    // Keep watched Deep Analyses warm (only ones that already exist + went stale; capped so this
+    // heavy call can't balloon cost — bounded further by the spend ceiling inside refreshDeepSystem).
+    const deepSyms = await staleWatchedDeepSymbols(4).catch(() => [] as string[]);
+    const deep: Array<{ symbol: string; refreshed: boolean; reason?: string }> = [];
+    for (const s of deepSyms) {
+      const r = await refreshDeepSystem(s).catch((e) => ({ refreshed: false, reason: String(e) }));
+      deep.push({ symbol: s, ...r });
+      if (r.reason === "spend_ceiling" || r.reason === "kill_switch") break; // stop early if guards trip
+    }
+    return Response.json({ ...refresh, macro, research: industries.map((industry, i) => ({ industry, ...research[i] })), deep });
   } catch (err) {
     const e = toApiError(err);
     return Response.json({ error: e.message, code: e.code }, { status: e.status });
