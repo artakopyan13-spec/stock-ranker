@@ -58,7 +58,9 @@ Deliver, in structured form:
 
 Also return a short headline read and up to 3 reference points a reader could verify against (e.g. the latest 10-K/10-Q, the investor-relations page) — title, a real url if you are confident of it (else "—"), and the period (title, url, date).
 
-Hard rules: ${web ? "Use real, web-sourced figures and cite them." : "This runs from your training knowledge, which may be months out of date — prefer durable structural analysis (moat, bottlenecks, risks) over precise recent figures."} NEVER fabricate a figure to look current — if you can't confirm one, use "—". Clearly distinguish reported facts from estimates and your own judgement. Plain English; explain jargon briefly. This is research, NOT financial advice — no "buy/sell" instruction and no single price target stated as fact (ranges, labelled as estimates, only).
+Hard rules: ${web
+    ? `Use real, web-sourced figures and cite them. If you can't confirm one, use "—".`
+    : `This runs from your training knowledge, which may be months out of date. Still FILL the numeric columns (growth metric values, valuation multiples/market cap, KPI "previous" figures, scores) with your best APPROXIMATE figure — prefix it with "~" (e.g. "~$17B", "~24x", "~44%") — rather than leaving them blank. Only use "—" when you genuinely have no basis for an estimate. Treat these as approximate, possibly-stale estimates, never as exact current facts.`} Clearly distinguish reported facts from estimates and your own judgement. Plain English; explain jargon briefly. This is research, NOT financial advice — no "buy/sell" instruction and no single price target stated as fact (ranges, labelled as estimates, only).
 
 Keep it tight so the JSON fits: every string ≤ ~35 words. Array limits — bottlenecks 3-5, catalysts 3-5, risks 3-5, growth.metrics ≤6, valuation.multiples ≤6, valuation.peers ≤4, earningsWatchlist.kpis exactly 5, moat.advantages ≤5, sources ≤6.
 

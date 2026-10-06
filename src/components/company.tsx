@@ -154,7 +154,7 @@ export function PriceChart({ symbol }: { symbol: string }) {
                 <text x={view.pad.l - 4} y={view.y(t) + 3} textAnchor="end" fontSize="9" fill="var(--muted)">{compact(t)}</text>
               </g>
             ))}
-            <path className="line-draw" d={view.path} fill="none" stroke={view.up ? "var(--green)" : "var(--red)"} strokeWidth="2" />
+            <path className="line-draw norm" pathLength={1} d={view.path} fill="none" stroke={view.up ? "var(--green)" : "var(--red)"} strokeWidth="2" />
             {hover && <line x1={view.x(prices.indexOf(hover))} x2={view.x(prices.indexOf(hover))} y1={view.pad.t} y2={view.h - view.pad.b} stroke="var(--gold)" strokeWidth="1" />}
           </svg>
         </>

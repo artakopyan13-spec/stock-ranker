@@ -732,6 +732,14 @@ a {
   stroke-dashoffset: 1000;
   animation: draw 1.4s ease-out forwards;
 }
+/* For long paths (e.g. the 250-point daily price line) the fixed 1000-unit dash above repeats and
+   renders as "drawn · gap · drawn". Pair this modifier with pathLength="1" on the <path>: the path
+   is normalized to length 1, so a 1-unit dash is exactly its full length — one solid stroke, no
+   repeat — and the draw animation still runs (offset 1 → 0) for any number of points. */
+.line-draw.norm {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+}
 @keyframes fade-up {
   from {
     opacity: 0;
