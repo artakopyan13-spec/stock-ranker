@@ -24,7 +24,9 @@ async function latest(symbol: string) {
 async function generate(symbol: string, userId: string | null, web = false): Promise<EarningsReportOutput | null> {
   const e = env();
   const today = new Date().toISOString().slice(0, 10);
-  const prompt = `Today is ${today}. Build an EARNINGS REPORT for the stock ${symbol} for its MOST RECENT reported quarter, ${web ? "searching the web for the real reported figures." : "using your own knowledge (do NOT browse the web)."}
+  const prompt = `Today is ${today}. Build an EARNINGS REPORT for the stock ${symbol}. ${web
+    ? "Cover its MOST RECENT reported quarter — search the web for the real reported figures."
+    : "Use your own knowledge (do NOT browse the web). Report the MOST RECENT quarter you can fill with REAL, confident figures from your training — this may be one or two quarters old; set quarterLabel and reportDate to THAT quarter, NOT a later one you have no data for. A slightly older quarter with real numbers is far more useful than the newest quarter left blank. Do not leave Revenue/EPS/margin empty for a quarter you actually know."}
 
 Return a structured report:
 - company, the quarter label (e.g. "Q2 FY2026"), the report date (YYYY-MM-DD), and timing ("After market close" / "Before open" / "").
