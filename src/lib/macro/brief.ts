@@ -8,8 +8,6 @@ import { effectiveLimits } from "@/lib/quota/settings";
 import { spendToday } from "@/lib/quota/spend";
 import { MacroBriefOutput } from "@/lib/macro/schema";
 
-const TTL_MS = 4 * 3_600_000; // refresh the calendar + news every few hours
-
 export interface MacroBriefResult {
   data: MacroBriefOutput | null;
   cached: boolean;
@@ -21,10 +19,11 @@ async function latest() {
 }
 
 /** The AI call + store. No gating — callers (user path / cron) decide policy. Returns null on refusal. */
-async function generateBrief(userId: string | null): Promise<MacroBriefOutput | null> {
+async function generateBrief(userId: string | null, web = false): Promise<MacroBriefOutput | null> {
   const e = env();
   const today = new Date().toISOString().slice(0, 10);
-  const prompt = `Today is ${today}. Build a market macro briefing by searching the web. Two parts:
+  const prompt = web
+    ? `Today is ${today}. Build a market macro briefing by searching the web. Two parts:
 
 1) UPCOMING CALENDAR — the high-impact scheduled US macro events in roughly the next 2 weeks: FOMC meetings/rate decisions, CPI and PCE inflation releases, the monthly jobs report (nonfarm payrolls), GDP, and any Fed chair testimony. For each: the exact date (YYYY-MM-DD), the event name, importance ("high" or "medium"), and one line on why it matters or what's expected.
 
@@ -32,13 +31,22 @@ async function generateBrief(userId: string | null): Promise<MacroBriefOutput | 
 
 Also give a 2-3 sentence summary of the current macro backdrop (rates, inflation trend, risk appetite).
 
-Hard rules: only REAL, sourced, dated items — never invent a quote, a number, or an event. If you can't confirm something, leave it out. Be factual and balanced; this is research, not advice, and contains no buy/sell calls.`;
+Hard rules: only REAL, sourced, dated items — never invent a quote, a number, or an event. If you can't confirm something, leave it out. Be factual and balanced; this is research, not advice, and contains no buy/sell calls.`
+    : `Today is ${today}. Build a market macro briefing from your own knowledge (do NOT browse the web).
+
+1) UPCOMING CALENDAR — list the regularly-SCHEDULED high-impact US macro events you are confident fall in roughly the next 2 weeks after today: FOMC decisions, CPI/PCE inflation releases, the monthly jobs report, GDP. For each: your best date (YYYY-MM-DD), the event name, importance ("high"/"medium"), and one line on why it matters. If you are not confident of exact dates, return fewer items rather than guessing.
+
+2) MARKET-MOVING HEADLINES — you cannot know the last few days' news without the web, so return an EMPTY headlines list here.
+
+Also give a 2-3 sentence summary of the general macro backdrop in plain terms, clearly as background (not breaking news).
+
+Hard rules: NEVER invent a quote, a specific number, or a dated event. Prefer leaving items out over guessing. This is research, not advice — no buy/sell calls. (Live headlines are refreshed separately.)`;
 
   const resp = await anthropic().messages.parse({
     model: e.NEWS_SEARCH_MODEL,
     max_tokens: 6000,
     output_config: { effort: "low", format: zodOutputFormat(MacroBriefOutput) },
-    tools: [{ type: "web_search_20260209", name: "web_search", max_uses: 5 }],
+    ...(web ? { tools: [{ type: "web_search_20260209" as const, name: "web_search", max_uses: 5 }] } : {}),
     messages: [{ role: "user", content: prompt }],
   });
 
@@ -58,34 +66,30 @@ Hard rules: only REAL, sourced, dated items — never invent a quote, a number, 
 export async function getOrCreateMacroBrief(opts: { userId?: string | null; ip?: string; force?: boolean } = {}): Promise<MacroBriefResult> {
   const e = env();
   const existing = await latest();
-  const fresh = existing ? Date.now() - existing.createdAt.getTime() < TTL_MS : false;
-  if (existing && fresh && !opts.force) return { data: JSON.parse(existing.payload), cached: true };
+  // On Vercel we can't run the live web briefing inside the 60s cap, so once a brief exists we always
+  // serve it — the live, source-dated version is refreshed out-of-band by the scheduled worker. We
+  // only ever generate here to SEED an empty cache (knowledge-only: scheduled events, no live news).
+  if (existing) return { data: JSON.parse(existing.payload), cached: true };
 
-  if (!e.ANTHROPIC_API_KEY && !e.DEMO_MODE) {
-    return existing ? { data: JSON.parse(existing.payload), cached: true } : { data: null, cached: false };
-  }
+  if (!e.ANTHROPIC_API_KEY && !e.DEMO_MODE) return { data: null, cached: false };
 
   const gate = await gateFreshAnalysis({ userId: opts.userId ?? null, ip: opts.ip ?? "0.0.0.0" });
-  if (!gate.allow) {
-    if (existing) return { data: JSON.parse(existing.payload), cached: true, notice: { reason: gate.reason, message: gate.message } };
-    return { data: null, cached: false, notice: { reason: gate.reason, message: gate.message } };
-  }
+  if (!gate.allow) return { data: null, cached: false, notice: { reason: gate.reason, message: gate.message } };
 
-  const data = await generateBrief(opts.userId ?? null);
-  if (!data) return existing ? { data: JSON.parse(existing.payload), cached: true } : { data: null, cached: false };
-  return { data, cached: false };
+  const data = await generateBrief(opts.userId ?? null, false);
+  return data ? { data, cached: false } : { data: null, cached: false };
 }
 
 /**
  * System refresh for the scheduled cron: no per-user quota, but still respects the global kill
  * switch and daily spend ceiling so an automated job can never blow the budget.
  */
-export async function refreshMacroBriefSystem(): Promise<{ refreshed: boolean; reason?: string }> {
+export async function refreshMacroBriefSystem(web = false): Promise<{ refreshed: boolean; reason?: string }> {
   const e = env();
   if (!e.ANTHROPIC_API_KEY || e.DEMO_MODE) return { refreshed: false, reason: "no_key" };
   const limits = await effectiveLimits();
   if (limits.killSwitchManual) return { refreshed: false, reason: "kill_switch" };
   if ((await spendToday()) >= limits.spendCeilingUsd) return { refreshed: false, reason: "spend_ceiling" };
-  const data = await generateBrief(null);
+  const data = await generateBrief(null, web);
   return { refreshed: Boolean(data) };
 }

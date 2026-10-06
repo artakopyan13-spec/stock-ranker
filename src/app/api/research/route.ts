@@ -7,7 +7,7 @@ import { FreshAnalysisDeniedError } from "@/lib/analysis/service";
 import { toApiError } from "@/lib/api-errors";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 120;
+export const maxDuration = 60; // Hobby plan hard cap
 
 const Body = z.object({ industry: z.string().min(2).max(80), force: z.boolean().optional() });
 

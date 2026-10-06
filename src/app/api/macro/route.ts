@@ -4,7 +4,7 @@ import { rateLimit } from "@/lib/quota/ratelimit";
 import { getOrCreateMacroBrief } from "@/lib/macro/brief";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 120;
+export const maxDuration = 60; // Hobby plan hard cap
 
 /** POST — refresh the macro briefing (gated paid action; returns the brief or a quota notice). */
 export async function POST(req: Request): Promise<Response> {

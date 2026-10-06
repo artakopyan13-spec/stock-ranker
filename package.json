@@ -18,6 +18,7 @@
     "db:push": "node scripts/prisma-schema.mjs && prisma db push",
     "db:seed": "tsx prisma/seed.ts",
     "seed:demo": "tsx scripts/seed-demo.ts",
+    "worker:refresh": "node scripts/prisma-schema.mjs && node scripts/build-prompts.mjs && tsx scripts/worker-refresh.ts",
     "vercel-build": "node scripts/prisma-schema.mjs && node scripts/build-prompts.mjs && prisma generate && prisma db push && tsx prisma/seed.ts && next build"
   },
   "dependencies": {

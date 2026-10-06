@@ -1,0 +1,58 @@
+# Save this as  .github/workflows/worker-refresh.yml  in your repo.
+#
+# WHAT IT DOES
+# Builds the WEB-VERIFIED macro briefing, industry research, deep analyses and earnings reports
+# OFF Vercel (GitHub runners have no 60s function cap) and writes them straight to the production
+# database. The app's on-demand buttons use the fast knowledge-only path; this keeps the cached
+# copies live + source-verified. See scripts/worker-refresh.ts for the full why.
+#
+# ONE-TIME SETUP
+# 1) Repo secrets  (Settings -> Secrets and variables -> Actions -> New repository secret):
+#      DATABASE_URL       = your PRODUCTION Postgres URL (the same one Vercel uses; prefer the
+#                           DIRECT / non-pooled URL if your host lists one)
+#      ANTHROPIC_API_KEY  = your Anthropic API key (same one set in Vercel)
+# 2) Repo variables (optional) (same screen -> Variables tab):
+#      NEWS_SEARCH_MODEL        = claude-sonnet-5         (default if unset)
+#      DAILY_SPEND_CEILING_USD  = 15                      (worker stops once the day hits this)
+# 3) Commit the file, then run it once by hand: Actions tab -> "Refresh worker" -> Run workflow
+#    (tick "Dry run" first to verify DB connectivity with zero AI cost).
+
+name: Refresh worker
+
+on:
+  schedule:
+    - cron: "0 */3 * * *" # every 3 hours
+  workflow_dispatch:
+    inputs:
+      dry:
+        description: "Dry run (print the plan only, no AI calls, no cost)"
+        type: boolean
+        default: false
+
+concurrency:
+  group: refresh-worker
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      DATABASE_PROVIDER: postgresql
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      NEWS_SEARCH_MODEL: ${{ vars.NEWS_SEARCH_MODEL }}
+      DAILY_SPEND_CEILING_USD: ${{ vars.DAILY_SPEND_CEILING_USD }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+      - run: npm ci
+      - name: Generate Prisma client (postgres)
+        run: npm run prisma:generate
+      - name: Build prompts
+        run: node scripts/build-prompts.mjs
+      - name: Run refresh worker
+        run: npx tsx scripts/worker-refresh.ts ${{ (github.event_name == 'workflow_dispatch' && inputs.dry) && '--dry' || '' }}

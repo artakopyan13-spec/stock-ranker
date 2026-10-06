@@ -23,12 +23,12 @@ async function latest(industry: string) {
 }
 
 /** The AI call + store for one industry. No gating — callers decide policy. Returns null on refusal. */
-async function generateResearch(industry: string, industryInput: string, userId: string | null): Promise<ResearchOutput | null> {
+async function generateResearch(industry: string, industryInput: string, userId: string | null, web = false): Promise<ResearchOutput | null> {
   const e = env();
   const today = new Date().toISOString().slice(0, 10);
   const prompt = `Today is ${today}. A user wants to research the "${industryInput}" industry/theme so they can build a watchlist of companies to analyze themselves.
 
-Search the web for the current state of this industry and the notable PUBLICLY TRADED companies in it. Use real, correct stock tickers only.
+${web ? "Search the web for the current state of this industry and the notable PUBLICLY TRADED companies in it." : "Using your own knowledge, cover the current state of this industry and the notable PUBLICLY TRADED companies in it."} Use real, correct stock tickers only.
 
 WRITE FOR A COMPLETE BEGINNER. The reader has NO finance and NO medical/technical background. This is the most important rule:
 - Use plain, everyday English. No jargon, no acronyms, no industry slang.
@@ -49,13 +49,15 @@ Return:
 Hard rules:
 - Only real, currently-listed public companies with correct tickers. If unsure of a ticker, omit that company.
 - This is NEUTRAL research to help someone decide what to review — NOT investment advice. Do not tell anyone to buy or sell, do not give price targets, do not rank a "best pick". Every company must include a genuine risk.
-- Prefer recent, reputable sources.`;
+- ${web ? "Prefer recent, reputable sources." : "This runs from training knowledge; omit any company whose ticker you are not confident is current and correct."}`;
 
+  // web=false (on-demand on Vercel): knowledge-only, fits the Hobby 60s cap. web=true (off-Vercel
+  // worker): web-verified current state. The agentic search loop is far too slow for a 60s function.
   const resp = await anthropic().messages.parse({
     model: e.NEWS_SEARCH_MODEL,
     max_tokens: 6000,
     output_config: { effort: "low", format: zodOutputFormat(ResearchOutput) },
-    tools: [{ type: "web_search_20260209", name: "web_search", max_uses: 4 }],
+    ...(web ? { tools: [{ type: "web_search_20260209" as const, name: "web_search", max_uses: 4 }] } : {}),
     messages: [{ role: "user", content: prompt }],
   });
 
@@ -101,13 +103,13 @@ export async function getOrCreateResearch(industryInput: string, opts: { userId?
 }
 
 /** System refresh for the scheduled cron — no per-user quota, but respects kill switch + spend ceiling. */
-export async function refreshResearchSystem(industryInput: string): Promise<{ refreshed: boolean; reason?: string }> {
+export async function refreshResearchSystem(industryInput: string, web = false): Promise<{ refreshed: boolean; reason?: string }> {
   const e = env();
   if (!e.ANTHROPIC_API_KEY || e.DEMO_MODE) return { refreshed: false, reason: "no_key" };
   const limits = await effectiveLimits();
   if (limits.killSwitchManual) return { refreshed: false, reason: "kill_switch" };
   if ((await spendToday()) >= limits.spendCeilingUsd) return { refreshed: false, reason: "spend_ceiling" };
-  const data = await generateResearch(norm(industryInput), industryInput, null);
+  const data = await generateResearch(norm(industryInput), industryInput, null, web);
   return { refreshed: Boolean(data) };
 }
 
