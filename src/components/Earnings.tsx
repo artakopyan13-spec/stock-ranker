@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import type { EarningsReportOutput } from "@/lib/earnings/schema";
+import { ProgressLine } from "@/components/ProgressLine";
 
 const VERDICT_TONE: Record<string, string> = {
   beat: "text-green",
@@ -75,6 +76,7 @@ export function Earnings({ symbol, signedIn = false }: { symbol: string; signedI
       <div className="card p-8 text-center space-y-3">
         <p className="text-sm text-muted">No earnings report yet for {symbol}.</p>
         <button type="button" onClick={() => void generate(false)} disabled={busy} className="btn btn-primary">{busy ? "Building report…" : "Build earnings report"}</button>
+        <ProgressLine key={busy ? "on" : "off"} active={busy} estSeconds={28} label="Building report" />
         {notice && (
           <div className="text-xs flex items-center justify-center gap-2 flex-wrap">
             <span className="text-gold">{notice}</span>

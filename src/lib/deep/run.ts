@@ -57,6 +57,8 @@ Also return a short headline read and a list of the key sources you used (title,
 
 Hard rules: NEVER fabricate a financial figure — if you can't confirm one, use "—" and say so. Clearly distinguish reported facts from analyst estimates, management guidance, and your own AI estimates. Plain English; explain jargon briefly. This is research, NOT financial advice — no "buy/sell" instruction and no single price target stated as fact (ranges, labelled as estimates, only).
 
+Keep it tight so the JSON fits: every string ≤ ~35 words. Array limits — bottlenecks 3-5, catalysts 3-5, risks 3-5, growth.metrics ≤6, valuation.multiples ≤6, valuation.peers ≤4, earningsWatchlist.kpis exactly 5, moat.advantages ≤5, sources ≤6.
+
 When you have finished researching, return ONLY one minified JSON object — no prose, no markdown fences — with EXACTLY this shape. Fill EVERY field; scores are numbers 0-10; use "—" for any unknown string:
 {"asOf":"${today}","company":"","headline":"","moat":{"score":0,"strength":"weak|moderate|strong|exceptional","direction":"strengthening|stable|weakening","advantages":[""],"summary":""},"bottlenecks":[{"rank":1,"title":"","severity":0,"detail":"","solution":{"summary":"","detail":"","timeline":""}}],"growth":{"score":0,"summary":"","metrics":[{"label":"","value":"","yoy":"","forward":""}]},"valuation":{"score":0,"summary":"","multiples":[{"label":"","value":"","vsHistory":"","vsPeers":""}],"peers":[{"ticker":"","note":""}],"greatCompanyVsStock":""},"catalysts":[{"title":"","window":"","detail":""}],"risks":[{"title":"","detail":""}],"scenarios":{"bull":{"operational":"","priceRange":"","note":""},"base":{"operational":"","priceRange":"","note":""},"bear":{"operational":"","priceRange":"","note":""}},"earningsWatchlist":{"nextDate":"","kpis":[{"name":"","previous":"","expectation":"","bullish":"","neutral":"","bearish":""}]},"scorecard":{"moat":0,"growth":0,"financialStrength":0,"management":0,"valuation":0,"catalysts":0,"risk":0,"overall":0},"thesis":{"whyOwn":"","whyAvoid":"","whatChanges":"","attractivePrice":""},"sources":[{"title":"","url":"","date":""}]}`;
 
@@ -64,9 +66,9 @@ When you have finished researching, return ONLY one minified JSON object — no 
   // limit; web search still runs, and we parse + validate the final JSON text ourselves.
   const resp = await anthropic().messages.create({
     model: e.NEWS_SEARCH_MODEL,
-    max_tokens: 12000,
-    output_config: { effort: "medium" },
-    tools: [{ type: "web_search_20260209", name: "web_search", max_uses: 7 }],
+    max_tokens: 20000,
+    output_config: { effort: "low" }, // low reasoning leaves the token budget for the large JSON
+    tools: [{ type: "web_search_20260209", name: "web_search", max_uses: 6 }],
     messages: [{ role: "user", content: prompt }],
   });
 

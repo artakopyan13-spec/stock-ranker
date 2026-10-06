@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import type { DeepAnalysisOutput } from "@/lib/deep/schema";
+import { ProgressLine } from "@/components/ProgressLine";
 
 function toneFor(score: number): string {
   return score >= 7 ? "var(--green)" : score >= 5 ? "var(--gold)" : "var(--red)";
@@ -81,7 +82,8 @@ export function DeepAnalysis({ symbol, signedIn = false }: { symbol: string; sig
     return (
       <div className="card p-8 text-center space-y-3">
         <p className="text-sm text-muted">No deep analysis yet for {symbol}. This researches moat, bottlenecks &amp; management&rsquo;s fixes, growth, valuation vs peers, catalysts, risks, bull/base/bear scenarios, and the next earnings watchlist.</p>
-        <button type="button" onClick={() => void generate(false)} disabled={busy} className="btn btn-primary">{busy ? "Researching… (this one takes a bit)" : "Build deep analysis"}</button>
+        <button type="button" onClick={() => void generate(false)} disabled={busy} className="btn btn-primary">{busy ? "Researching…" : "Build deep analysis"}</button>
+        <ProgressLine key={busy ? "on" : "off"} active={busy} estSeconds={55} label="Researching" />
         {notice && (
           <div className="text-xs flex items-center justify-center gap-2 flex-wrap">
             <span className="text-gold">{notice}</span>
