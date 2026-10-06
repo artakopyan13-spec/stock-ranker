@@ -7,7 +7,7 @@ import { FreshAnalysisDeniedError } from "@/lib/analysis/service";
 import { toApiError } from "@/lib/api-errors";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 180;
+export const maxDuration = 60; // Hobby plan hard cap
 
 /** GET — the cached deep analysis (free), or 404 if none exists yet. */
 export async function GET(_req: Request, ctx: { params: Promise<{ ticker: string }> }): Promise<Response> {

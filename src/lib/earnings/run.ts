@@ -1,4 +1,3 @@
-import Anthropic from "@anthropic-ai/sdk";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { db } from "@/lib/db";
 import { env } from "@/lib/env";
@@ -22,7 +21,7 @@ async function latest(symbol: string) {
 async function generate(symbol: string, userId: string | null): Promise<EarningsReportOutput | null> {
   const e = env();
   const today = new Date().toISOString().slice(0, 10);
-  const prompt = `Today is ${today}. Build an EARNINGS REPORT for the stock ${symbol} for its MOST RECENT reported quarter. Search the web for the real figures.
+  const prompt = `Today is ${today}. Build an EARNINGS REPORT for the stock ${symbol} for its MOST RECENT reported quarter, using your own knowledge (do NOT browse the web).
 
 Return a structured report:
 - company, the quarter label (e.g. "Q2 FY2026"), the report date (YYYY-MM-DD), and timing ("After market close" / "Before open" / "").
@@ -36,20 +35,20 @@ Return a structured report:
 - nextReportDate: the estimated date of the next earnings report (YYYY-MM-DD), or "".
 
 Hard rules:
-- Use ONLY real, web-sourced figures. Never invent a number. If a figure can't be confirmed, use "—" (strings) or null (numbers) and verdict "na".
+- This runs from your training knowledge, which may be months out of date. NEVER invent a number to look current. If you can't recall a figure confidently, use "—" (strings) or null (numbers) and verdict "na". It is better to mark a figure unknown than to guess.
 - Write in plain English a beginner can follow; explain any jargon briefly.
 - This is research, not advice: no price targets, no "buy/sell" calls. The scenarios describe what the numbers would need to do, not what the reader should do.`;
 
+  // NO web search: the agentic search loop runs minutes and ignores max_uses, which the Vercel
+  // Hobby 60s function cap can't survive. A knowledge-only call finishes in well under 30s.
   const resp = await anthropic().messages.parse({
     model: e.NEWS_SEARCH_MODEL,
     max_tokens: 6000,
     output_config: { effort: "low", format: zodOutputFormat(EarningsReportOutput) },
-    tools: [{ type: "web_search_20260209", name: "web_search", max_uses: 5 }],
     messages: [{ role: "user", content: prompt }],
   });
 
-  const searches = resp.content.filter((b): b is Anthropic.ServerToolUseBlock => b.type === "server_tool_use").length;
-  await logUsage("earnings", e.NEWS_SEARCH_MODEL, usageFromMessage(resp.usage), { symbol, userId, webSearches: searches });
+  await logUsage("earnings", e.NEWS_SEARCH_MODEL, usageFromMessage(resp.usage), { symbol, userId, webSearches: 0 });
 
   if (resp.stop_reason === "refusal" || !resp.parsed_output || resp.parsed_output.metrics.length === 0) return null;
   const data = resp.parsed_output;

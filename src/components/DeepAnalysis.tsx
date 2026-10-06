@@ -81,9 +81,9 @@ export function DeepAnalysis({ symbol, signedIn = false }: { symbol: string; sig
   if (!data) {
     return (
       <div className="card p-8 text-center space-y-3">
-        <p className="text-sm text-muted">No deep analysis yet for {symbol}. This researches moat, bottlenecks &amp; management&rsquo;s fixes, growth, valuation vs peers, catalysts, risks, bull/base/bear scenarios, and the next earnings watchlist.</p>
-        <button type="button" onClick={() => void generate(false)} disabled={busy} className="btn btn-primary">{busy ? "Researching…" : "Build deep analysis"}</button>
-        <ProgressLine key={busy ? "on" : "off"} active={busy} estSeconds={55} label="Researching" />
+        <p className="text-sm text-muted">No deep analysis yet for {symbol}. This covers moat, bottlenecks &amp; management&rsquo;s fixes, growth, valuation vs peers, catalysts, risks, bull/base/bear scenarios, and the next earnings watchlist.</p>
+        <button type="button" onClick={() => void generate(false)} disabled={busy} className="btn btn-primary">{busy ? "Building…" : "Build deep analysis"}</button>
+        <ProgressLine key={busy ? "on" : "off"} active={busy} estSeconds={25} label="Building" />
         {notice && (
           <div className="text-xs flex items-center justify-center gap-2 flex-wrap">
             <span className="text-gold">{notice}</span>
@@ -223,14 +223,21 @@ export function DeepAnalysis({ symbol, signedIn = false }: { symbol: string; sig
           <div className="text-xs font-semibold mb-2">Sources</div>
           <ul className="space-y-1 text-xs">
             {data.sources.map((s, i) => (
-              <li key={i}><a href={s.url} target="_blank" rel="noopener noreferrer" className="text-purple no-underline hover:underline">{s.title}</a> <span className="text-muted">· {s.date}</span></li>
+              <li key={i}>
+                {/^https?:\/\//.test(s.url) ? (
+                  <a href={s.url} target="_blank" rel="noopener noreferrer" className="text-purple no-underline hover:underline">{s.title}</a>
+                ) : (
+                  <span>{s.title}</span>
+                )}
+                {s.date && s.date !== "—" && <span className="text-muted"> · {s.date}</span>}
+              </li>
             ))}
           </ul>
         </div>
       )}
 
       <div className="flex items-center justify-between gap-2 flex-wrap text-xs text-muted">
-        <span>as of {data.asOf} · sourced research, estimates labelled, not financial advice</span>
+        <span>as of {data.asOf} · built from AI knowledge · estimates labelled · verify figures · not advice</span>
         <span className="flex items-center gap-2">
           <button type="button" onClick={() => void generate(true)} disabled={busy} className="btn text-xs py-1 px-2">{busy ? "Refreshing…" : "↻ Refresh analysis"}</button>
           {notice && <span className="text-gold">{notice}</span>}

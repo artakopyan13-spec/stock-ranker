@@ -76,7 +76,7 @@ export function Earnings({ symbol, signedIn = false }: { symbol: string; signedI
       <div className="card p-8 text-center space-y-3">
         <p className="text-sm text-muted">No earnings report yet for {symbol}.</p>
         <button type="button" onClick={() => void generate(false)} disabled={busy} className="btn btn-primary">{busy ? "Building report…" : "Build earnings report"}</button>
-        <ProgressLine key={busy ? "on" : "off"} active={busy} estSeconds={28} label="Building report" />
+        <ProgressLine key={busy ? "on" : "off"} active={busy} estSeconds={20} label="Building report" />
         {notice && (
           <div className="text-xs flex items-center justify-center gap-2 flex-wrap">
             <span className="text-gold">{notice}</span>
@@ -190,7 +190,7 @@ export function Earnings({ symbol, signedIn = false }: { symbol: string; signedI
 
       {/* footer */}
       <div className="flex items-center justify-between gap-2 flex-wrap text-xs text-muted">
-        <span>{data.nextReportDate ? `Next report ≈ ${data.nextReportDate} · ` : ""}as of {data.asOf} · sourced from the web, not advice</span>
+        <span>{data.nextReportDate ? `Next report ≈ ${data.nextReportDate} · ` : ""}as of {data.asOf} · built from AI knowledge · verify figures · not advice</span>
         <span className="flex items-center gap-2">
           <button type="button" onClick={() => void generate(true)} disabled={busy} className="btn text-xs py-1 px-2">{busy ? "Refreshing…" : "↻ Regenerate"}</button>
           {notice && <span className="text-gold">{notice}</span>}
