@@ -4,7 +4,7 @@ import { gateFreshAnalysis } from "@/lib/quota/gate";
 import { generateReview } from "@/lib/portfolio/review";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 180;
+export const maxDuration = 60; // Hobby plan hard cap
 
 /** POST — generate the full portfolio review (heavy: gated as a fresh-analysis credit). */
 export async function POST(req: Request): Promise<Response> {

@@ -3,7 +3,7 @@
 import { useRef, useState } from "react";
 import Link from "next/link";
 import type { EnrichedHolding, Holding, PortfolioPayload } from "@/lib/portfolio/schema";
-import type { PortfolioReviewV2 } from "@/lib/portfolio/review-schema";
+import type { PortfolioReviewV2, BeatQQQ } from "@/lib/portfolio/review-schema";
 import { FCF_EMOJI } from "@/lib/analysis/schema";
 import { ChatPanel } from "@/components/ChatPanel";
 import { SkillDashboard } from "@/components/SkillDashboard";
@@ -208,6 +208,8 @@ export function PortfolioWorkspace({ initial, signedIn }: { initial: PortfolioPa
             </div>
           )}
 
+          {pf.review?.beatQQQ?.verdict && <BeatQQQPanel b={pf.review.beatQQQ} />}
+
           {pf.review && <SkillDashboard review={pf.review} holdings={pf.holdings} newCashUsd={pf.newCashUsd} generatedAt={pf.review.generatedAt} />}
 
           <div>
@@ -224,6 +226,69 @@ export function PortfolioWorkspace({ initial, signedIn }: { initial: PortfolioPa
           </div>
         </>
       )}
+    </div>
+  );
+}
+
+function BeatQQQPanel({ b }: { b: BeatQQQ }) {
+  return (
+    <div className="card p-5 space-y-4" style={{ borderTop: "3px solid var(--purple)" }}>
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="chip chip-muted font-mono">vs QQQ</span>
+        <h3 className="text-base font-semibold">Your plan to beat the Nasdaq-100</h3>
+      </div>
+      <p className="text-sm leading-relaxed font-medium">{b.verdict}</p>
+
+      <div className="grid gap-3 sm:grid-cols-2">
+        {b.overlap && (
+          <div className="card-2 p-3 rounded-lg">
+            <div className="text-[0.66rem] uppercase tracking-wide text-muted mb-1">How much you already are QQQ</div>
+            <p className="text-sm text-muted">{b.overlap}</p>
+          </div>
+        )}
+        {b.gap && (
+          <div className="card-2 p-3 rounded-lg" style={{ borderLeft: "2px solid var(--red)" }}>
+            <div className="text-[0.66rem] uppercase tracking-wide text-red mb-1">Where you&rsquo;ll lag the index</div>
+            <p className="text-sm text-muted">{b.gap}</p>
+          </div>
+        )}
+      </div>
+
+      {b.edges.length > 0 && (
+        <div>
+          <div className="text-xs font-semibold text-green mb-1.5">Your edges over QQQ</div>
+          <ul className="space-y-1.5 text-sm">
+            {b.edges.map((e, i) => (
+              <li key={i} className="flex gap-2"><span className="text-green shrink-0">▲</span><span className="text-muted">{e}</span></li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {b.moves.length > 0 && (
+        <div>
+          <div className="text-xs font-semibold mb-2">The moves that create alpha</div>
+          <ol className="space-y-2">
+            {b.moves.map((m, i) => (
+              <li key={i} className="card-2 p-3 rounded-lg flex gap-3">
+                <span className="w-5 h-5 rounded-full bg-purple text-white text-xs flex items-center justify-center shrink-0 font-semibold">{i + 1}</span>
+                <div>
+                  <div className="text-sm font-medium">{m.step}</div>
+                  <div className="text-xs text-muted mt-0.5"><span className="text-purple">edge: </span>{m.edge}</div>
+                </div>
+              </li>
+            ))}
+          </ol>
+        </div>
+      )}
+
+      {b.risk && (
+        <div className="text-sm">
+          <span className="text-gold font-semibold">⚠ How this plan loses to QQQ instead: </span>
+          <span className="text-muted">{b.risk}</span>
+        </div>
+      )}
+      <p className="text-[0.65rem] text-dim">A framework built from your holdings&rsquo; real numbers vs QQQ&rsquo;s profile — estimates and rules, not a promise or financial advice.</p>
     </div>
   );
 }

@@ -30,6 +30,7 @@ Sections you must produce (see the schema):
 - cards: one JUDGMENT object per holding (tag, tone, rate 1-10, one-liner, fcfHeadline + fcfExplanation, best, bull, bear, trip (up/down tripwire), cat (next catalyst), why (one-line verdict), and forecast fBear/fBase/fBull PRICES built from forward EPS × a stated multiple, cross-checked with the 52-week range).
 - plan: only when newCash > 0 — allocations AND tranches that EACH sum to newCash, a why with resulting weights, and noAdds with a one-line reason each.
 - review: the plain-English HONEST REVIEW a beginner reads first. grade (a letter, no grade inflation), gradeNote, summary (3-4 plain sentences, say "spare cash" not "FCF", "how expensive it is" not "multiple"), good (3-5 things they're doing right), bad (3-5 things that worry you), suggestions (imperative, may use <b>), perStock (one {t, call, tone, line} per holding — a short plain call and one line). Consistent with plan, zones and actions.
+- beatQQQ: the realistic, portfolio-SPECIFIC plan to OUTPERFORM QQQ (the Nasdaq-100: mega-cap tech heavy — AAPL, MSFT, NVDA, AMZN, GOOGL, META, AVGO, TSLA dominate it). Be brutally honest: if the portfolio is already mostly those same mega-cap tech names, it IS basically QQQ with more risk and will struggle to beat it — say so. verdict (one plain line: realistically set up to beat QQQ or not, and why). overlap (how much of this book already duplicates QQQ's core). gap (where it's most likely to LAG the index). edges (genuine, specific advantages it has over QQQ — e.g. a high-FCF name QQQ under-weights, concentration in a winner, cash to deploy on dips, exposure QQQ lacks). moves (3-5 CONCRETE moves to generate alpha vs QQQ — each a specific action tied to a ticker/weight/trigger from FACTS, with the edge it creates: trimming index-duplicating names, adding an under-owned high-quality compounder, using cash in buy zones, avoiding a cash-burner). risk (the main way this plan ends up BEHIND QQQ instead). Ground every claim in the holdings' real FCF/valuation/forecasts and the QQQ facts provided; this is a framework, not a promise or advice.
 - nextSteps: 4-6 dated, imperative html lines for "What to do, in order" — consistent with the plan, zones and actions (e.g. "<b>Now → Sep 30:</b> buy $600 of X").
 - sources (plain text with as-of dates from FACTS), unverified (one line listing anything not in FACTS).
 Tone: decisive, brief, specific. Keep every text field to 1-2 tight sentences — the dashboard is compact and brevity keeps it fast. No hedging paragraphs.`;
@@ -47,6 +48,14 @@ const SHAPE = JSON.stringify({
     bad: ["what worries me"],
     suggestions: ["<b>Add to X first.</b> reason"],
     perStock: [{ t: "AVGO", call: "Add", tone: "green", line: "Best business you own, on sale." }],
+  },
+  beatQQQ: {
+    verdict: "Hard but possible — you own QQQ's winners plus two edges it under-weights.",
+    overlap: "~70% of the book is QQQ's own top names, so most of it just tracks the index.",
+    gap: "No cash reserve and 0% ex-tech means you lag QQQ in any tech drawdown.",
+    edges: ["Overweight AVGO's 44% FCF margin vs its small QQQ weight", "$4k cash to deploy on dips QQQ can't"],
+    moves: [{ step: "Trim NVDA to 16% cap, move proceeds to AVGO in its buy zone", edge: "same AI exposure, cheaper cash flow, less single-name risk than QQQ's NVDA weight" }],
+    risk: "If mega-cap tech keeps leading, trimming winners makes you trail QQQ.",
   },
   nextSteps: ["<b>Now → Sep 30:</b> buy $600 of X"],
   themes: [{ label: "AI capex", pct: 100, sub: "all of it", tone: "red" }],
@@ -141,6 +150,12 @@ export async function generateReview(userId: string): Promise<PortfolioReviewV2>
   const heldSectors = new Set(cards.map((c) => c.numbers.sector).filter((s): s is string => Boolean(s)));
   const ideas = await ideaCandidates(heldSectors);
 
+  // Ground the "beat QQQ" plan in a real QQQ snapshot (benchmark anchor), best-effort.
+  const qqq = await getStockData("QQQ").then((r) => r.data).catch(() => null);
+  const benchmarkQQQ = qqq
+    ? { symbol: "QQQ", name: "Invesco QQQ (Nasdaq-100)", price: qqq.quote.price.value, week52Low: qqq.quote.week52Low.value, week52High: qqq.quote.week52High.value, asOf: qqq.fetchedAt, note: "Mega-cap tech heavy: AAPL/MSFT/NVDA/AMZN/GOOGL/META/AVGO/TSLA dominate the weight." }
+    : { symbol: "QQQ", name: "Invesco QQQ (Nasdaq-100)", note: "Mega-cap tech heavy: AAPL/MSFT/NVDA/AMZN/GOOGL/META/AVGO/TSLA dominate the weight." };
+
   const activity = row.alltime ? (JSON.parse(row.alltime) as ReturnType<typeof parseActivityCsv>) : null;
   const sizesProvided = holdings.some((h) => h.valueUsd !== null && h.valueUsd > 0);
   const costsProvided = holdings.some((h) => h.avgCost !== null);
@@ -160,11 +175,12 @@ export async function generateReview(userId: string): Promise<PortfolioReviewV2>
     }).filter(Boolean),
     activity: activity ? { netDeposits: activity.netDeposits, realized: activity.realized, income: activity.income, fees: activity.fees, closed: activity.closed, endDate: activity.endDate } : null,
     ideaCandidates: ideas,
+    benchmarkQQQ,
   };
 
   const { value, usage, model } = await runAssistantJsonLoose({
     system: `${SYSTEM}\n\nReturn a JSON object with EXACTLY these keys and shapes (example values are illustrative — replace them, keep every key):\n${SHAPE}`,
-    user: `FACTS:\n${JSON.stringify(facts, null, 1)}\n\nProduce the review JSON. One card per position (match t exactly), one zone per position, one perStock entry per position.`,
+    user: `FACTS:\n${JSON.stringify(facts, null, 1)}\n\nProduce the review JSON. One card per position (match t exactly), one zone per position, one perStock entry per position. Fill beatQQQ with a concrete, honest plan to outperform QQQ grounded in benchmarkQQQ and each holding's real numbers.`,
     schema: ReviewJudgment,
     model: env().ANALYSIS_MODEL,
     effort: "low",
@@ -197,6 +213,7 @@ export async function generateReview(userId: string): Promise<PortfolioReviewV2>
     score: value.score,
     honestRead: value.honestRead,
     review: value.review,
+    beatQQQ: value.beatQQQ,
     nextSteps: value.nextSteps,
     themes: value.themes,
     macro: value.macro,

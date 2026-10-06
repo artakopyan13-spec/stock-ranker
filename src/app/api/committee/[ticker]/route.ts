@@ -9,7 +9,7 @@ import { db } from "@/lib/db";
 import { capsFor } from "@/lib/plans";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 120;
+export const maxDuration = 60; // Hobby plan hard cap
 
 /** GET — return the cached committee report (free), or 404 if none exists yet. */
 export async function GET(_req: Request, ctx: RouteContext<"/api/committee/[ticker]">): Promise<Response> {

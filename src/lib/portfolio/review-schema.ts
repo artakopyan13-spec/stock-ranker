@@ -75,6 +75,22 @@ export type HonestReview = z.infer<typeof HonestReview>;
 
 const EMPTY_REVIEW = { grade: "—", gradeNote: "", summary: "", good: [], bad: [], suggestions: [], perStock: [] };
 
+/** The concrete, portfolio-specific plan to OUTPERFORM QQQ (Nasdaq-100). Benchmark-relative. */
+const BeatMove = z.object({
+  step: z.string(), // the move, imperative + specific (ticker, size, trigger)
+  edge: z.string(), // WHY this creates alpha vs QQQ (lower overlap, better FCF/valuation, etc.)
+});
+export const BeatQQQ = z.object({
+  verdict: z.string(), // plain one-liner: are you realistically set up to beat QQQ, and why
+  overlap: z.string(), // how much this portfolio already looks like QQQ (its mega-cap tech cEORE)
+  gap: z.string(), // the honest alpha gap — where you're most likely to LAG QQQ
+  edges: z.array(z.string()), // genuine edges this portfolio has over the index
+  moves: z.array(BeatMove), // 3-5 concrete, portfolio-specific moves to beat QQQ
+  risk: z.string(), // the main way this plan underperforms QQQ instead
+});
+export type BeatQQQ = z.infer<typeof BeatQQQ>;
+const EMPTY_BEATQQQ = { verdict: "", overlap: "", gap: "", edges: [], moves: [], risk: "" };
+
 /** The full model output. Judgment only — code supplies every hard number.
  * `.catch` makes each field degrade to a safe default so one malformed field never discards the whole (expensive) generation. */
 export const ReviewJudgment = z.object({
@@ -83,6 +99,7 @@ export const ReviewJudgment = z.object({
   score: z.number().catch(5),
   honestRead: z.string().catch(""),
   review: HonestReview.catch(EMPTY_REVIEW),
+  beatQQQ: BeatQQQ.catch(EMPTY_BEATQQQ),
   nextSteps: z.array(z.string()).catch([]),
   themes: z.array(Theme).catch([]),
   macro: z.array(MacroBox).catch([]),
@@ -128,6 +145,7 @@ export interface PortfolioReviewV2 {
   score: number;
   honestRead: string;
   review: HonestReview;
+  beatQQQ: BeatQQQ;
   nextSteps: string[];
   themes: z.infer<typeof Theme>[];
   macro: z.infer<typeof MacroBox>[];
