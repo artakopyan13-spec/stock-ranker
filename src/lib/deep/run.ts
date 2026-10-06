@@ -1,5 +1,4 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { db } from "@/lib/db";
 import { env } from "@/lib/env";
 import { anthropic, logUsage, usageFromMessage } from "@/lib/ai/client";
@@ -11,6 +10,21 @@ import { FreshAnalysisDeniedError } from "@/lib/analysis/service";
 import { DeepAnalysisOutput } from "@/lib/deep/schema";
 
 const TTL_MS = 7 * 24 * 3_600_000; // deep analysis is stable for about a week
+
+/** Pull a JSON object out of a model's final text (strips fences / surrounding prose). */
+function extractJson(text: string): unknown {
+  let t = text.trim();
+  const fence = t.match(/```(?:json)?\s*([\s\S]*?)```/);
+  if (fence) t = fence[1].trim();
+  const start = t.indexOf("{");
+  const end = t.lastIndexOf("}");
+  if (start >= 0 && end > start) t = t.slice(start, end + 1);
+  try {
+    return JSON.parse(t);
+  } catch {
+    return null;
+  }
+}
 
 export interface DeepResult {
   data: DeepAnalysisOutput;
@@ -41,12 +55,17 @@ Deliver, in structured form:
 
 Also return a short headline read and a list of the key sources you used (title, url, date).
 
-Hard rules: NEVER fabricate a financial figure — if you can't confirm one, use "—" and say so. Clearly distinguish reported facts from analyst estimates, management guidance, and your own AI estimates. Plain English; explain jargon briefly. This is research, NOT financial advice — no "buy/sell" instruction and no single price target stated as fact (ranges, labelled as estimates, only).`;
+Hard rules: NEVER fabricate a financial figure — if you can't confirm one, use "—" and say so. Clearly distinguish reported facts from analyst estimates, management guidance, and your own AI estimates. Plain English; explain jargon briefly. This is research, NOT financial advice — no "buy/sell" instruction and no single price target stated as fact (ranges, labelled as estimates, only).
 
-  const resp = await anthropic().messages.parse({
+When you have finished researching, return ONLY one minified JSON object — no prose, no markdown fences — with EXACTLY this shape. Fill EVERY field; scores are numbers 0-10; use "—" for any unknown string:
+{"asOf":"${today}","company":"","headline":"","moat":{"score":0,"strength":"weak|moderate|strong|exceptional","direction":"strengthening|stable|weakening","advantages":[""],"summary":""},"bottlenecks":[{"rank":1,"title":"","severity":0,"detail":"","solution":{"summary":"","detail":"","timeline":""}}],"growth":{"score":0,"summary":"","metrics":[{"label":"","value":"","yoy":"","forward":""}]},"valuation":{"score":0,"summary":"","multiples":[{"label":"","value":"","vsHistory":"","vsPeers":""}],"peers":[{"ticker":"","note":""}],"greatCompanyVsStock":""},"catalysts":[{"title":"","window":"","detail":""}],"risks":[{"title":"","detail":""}],"scenarios":{"bull":{"operational":"","priceRange":"","note":""},"base":{"operational":"","priceRange":"","note":""},"bear":{"operational":"","priceRange":"","note":""}},"earningsWatchlist":{"nextDate":"","kpis":[{"name":"","previous":"","expectation":"","bullish":"","neutral":"","bearish":""}]},"scorecard":{"moat":0,"growth":0,"financialStrength":0,"management":0,"valuation":0,"catalysts":0,"risk":0,"overall":0},"thesis":{"whyOwn":"","whyAvoid":"","whatChanges":"","attractivePrice":""},"sources":[{"title":"","url":"","date":""}]}`;
+
+  // Lenient JSON (no strict output grammar) so this large schema doesn't blow the grammar-size
+  // limit; web search still runs, and we parse + validate the final JSON text ourselves.
+  const resp = await anthropic().messages.create({
     model: e.NEWS_SEARCH_MODEL,
     max_tokens: 12000,
-    output_config: { effort: "medium", format: zodOutputFormat(DeepAnalysisOutput) },
+    output_config: { effort: "medium" },
     tools: [{ type: "web_search_20260209", name: "web_search", max_uses: 7 }],
     messages: [{ role: "user", content: prompt }],
   });
@@ -54,8 +73,14 @@ Hard rules: NEVER fabricate a financial figure — if you can't confirm one, use
   const searches = resp.content.filter((b): b is Anthropic.ServerToolUseBlock => b.type === "server_tool_use").length;
   await logUsage("deep", e.NEWS_SEARCH_MODEL, usageFromMessage(resp.usage), { symbol, userId, webSearches: searches });
 
-  if (resp.stop_reason === "refusal" || !resp.parsed_output || resp.parsed_output.bottlenecks.length === 0) return null;
-  const data = resp.parsed_output;
+  if (resp.stop_reason === "refusal") return null;
+  const text = resp.content.filter((b): b is Anthropic.TextBlock => b.type === "text").map((b) => b.text).join("");
+  const parsed = DeepAnalysisOutput.safeParse(extractJson(text));
+  if (!parsed.success || parsed.data.bottlenecks.length === 0) {
+    console.error(`[deep] parse failed (stop=${resp.stop_reason}, len=${text.length}):`, parsed.success ? "empty bottlenecks" : parsed.error.message.slice(0, 400));
+    return null;
+  }
+  const data = parsed.data;
   await db().deepAnalysis.create({ data: { symbol, payload: JSON.stringify(data), model: e.NEWS_SEARCH_MODEL, usdCost: 0 } });
   return data;
 }

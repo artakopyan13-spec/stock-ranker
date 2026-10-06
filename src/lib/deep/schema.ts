@@ -50,8 +50,8 @@ export const DeepAnalysisOutput = z.object({
   headline: z.string(), // 1–2 sentence read
   moat: z.object({
     score: Score,
-    strength: z.enum(["weak", "moderate", "strong", "exceptional"]),
-    direction: z.enum(["strengthening", "stable", "weakening"]),
+    strength: z.string(), // weak | moderate | strong | exceptional
+    direction: z.string(), // strengthening | stable | weakening
     advantages: z.array(z.string()), // the concrete sources of advantage
     summary: z.string(),
   }),
