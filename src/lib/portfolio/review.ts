@@ -1,6 +1,6 @@
 import { db } from "@/lib/db";
 import { env } from "@/lib/env";
-import { runAssistantJsonLoose } from "@/lib/ai/assistant";
+import { runAssistantJsonLoose, type StructuredResult } from "@/lib/ai/assistant";
 import { logUsage } from "@/lib/ai/client";
 import { Analysis } from "@/lib/analysis/schema";
 import { getCompanyData } from "@/lib/data/company-source";
@@ -87,6 +87,37 @@ function chunk<T>(items: T[], size: number): T[][] {
   const out: T[][] = [];
   for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
   return out;
+}
+
+/** Most calls in flight at once — enough that a normal portfolio finishes in a single wave, low
+ *  enough not to trip rate limits (backoff on a 429 would push us past the function's time limit). */
+const MAX_CONCURRENCY = 6;
+/** Whole-generation wall-clock budget. The function itself dies at 60s with NOTHING to show, so we
+ *  stop starting new work before then and return whatever finished instead. */
+const GENERATION_BUDGET_MS = 46_000;
+
+/** Promise.allSettled with a concurrency cap and a deadline, preserving input order. Tasks not
+ *  started before the deadline are reported rejected rather than risking the function being killed. */
+async function runPool<T>(tasks: Array<() => Promise<T>>, limit: number, deadline: number): Promise<PromiseSettledResult<T>[]> {
+  const results = new Array<PromiseSettledResult<T>>(tasks.length);
+  let next = 0;
+  const worker = async (): Promise<void> => {
+    for (;;) {
+      const i = next++;
+      if (i >= tasks.length) return;
+      if (Date.now() >= deadline) {
+        results[i] = { status: "rejected", reason: new Error("skipped: generation time budget reached") };
+        continue;
+      }
+      try {
+        results[i] = { status: "fulfilled", value: await tasks[i]() };
+      } catch (reason) {
+        results[i] = { status: "rejected", reason };
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, tasks.length) }, worker));
+  return results;
 }
 
 function summarizePositions(cards: ReviewCard[], enriched: Awaited<ReturnType<typeof enrich>>["holdings"]) {
@@ -204,29 +235,45 @@ export async function generateReview(userId: string): Promise<PortfolioReviewV2>
   const batches = chunk(allPositions, POSITION_BATCH);
   const model = env().ANALYSIS_MODEL;
 
-  const [portfolioRes, ...positionResults] = await Promise.all([
-    runAssistantJsonLoose({
-      system: `${PORTFOLIO_SYSTEM}\n\nReturn a JSON object with EXACTLY these keys and shapes (example values are illustrative — replace them, keep every key):\n${PORTFOLIO_SHAPE}`,
-      user: `FACTS:\n${JSON.stringify(facts, null, 1)}\n\nProduce the portfolio-level review JSON. Fill beatQQQ with a concrete, honest plan to outperform QQQ grounded in benchmarkQQQ and the holdings' real numbers.`,
-      schema: PortfolioJudgment,
-      model,
-      effort: "low",
-      maxTokens: 9000,
-    }),
-    ...batches.map((batch) =>
-      runAssistantJsonLoose({
-        system: `${POSITIONS_SYSTEM}\n\nReturn a JSON object with EXACTLY these keys and shapes (example values are illustrative — replace them, keep every key):\n${POSITIONS_SHAPE}`,
-        user: `FACTS:\n${JSON.stringify({ ...facts, positions: batch }, null, 1)}\n\nProduce the per-position JSON for EXACTLY these ${batch.length} position(s): ${batch.map((p) => p.t).join(", ")}. One zone, one action, one card and one perStock entry for each.`,
-        schema: PositionsJudgment,
-        model,
-        effort: "low",
-        maxTokens: 9000,
+  // Each call is time-boxed well inside the function budget and retried at most once: the shared
+  // client otherwise allows 10 minutes, so one stalled or 429-backing-off call would silently burn
+  // the whole budget and the function would be killed with nothing to show. Concurrency is capped
+  // so a large portfolio doesn't fan out wide enough to trip rate limits.
+  const callOpts = { model, effort: "low" as const, maxTokens: 9000, timeoutMs: 42_000, maxRetries: 1 };
+  const tasks: Array<() => Promise<{ kind: "portfolio" | "positions"; res: StructuredResult<PortfolioJudgment | PositionsJudgment> }>> = [
+    async () => ({
+      kind: "portfolio" as const,
+      res: await runAssistantJsonLoose({
+        system: `${PORTFOLIO_SYSTEM}\n\nReturn a JSON object with EXACTLY these keys and shapes (example values are illustrative — replace them, keep every key):\n${PORTFOLIO_SHAPE}`,
+        user: `FACTS:\n${JSON.stringify(facts, null, 1)}\n\nProduce the portfolio-level review JSON. Fill beatQQQ with a concrete, honest plan to outperform QQQ grounded in benchmarkQQQ and the holdings' real numbers.`,
+        schema: PortfolioJudgment,
+        ...callOpts,
       }),
-    ),
-  ]);
+    }),
+    ...batches.map((batch) => async () => ({
+      kind: "positions" as const,
+      res: await runAssistantJsonLoose({
+        system: `${POSITIONS_SYSTEM}\n\nReturn a JSON object with EXACTLY these keys and shapes (example values are illustrative — replace them, keep every key):\n${POSITIONS_SHAPE}`,
+        user: `FACTS:\n${JSON.stringify({ ...facts, positions: batch }, null, 1)}\n\nProduce the per-position JSON for EXACTLY these ${batch.length} position(s): ${batch.map((x) => x.t).join(", ")}. One zone, one action, one card and one perStock entry for each.`,
+        schema: PositionsJudgment,
+        ...callOpts,
+      }),
+    })),
+  ];
 
-  const usage = [portfolioRes, ...positionResults].reduce(
-    (acc, r) => ({
+  // allSettled, not all: one failed batch must degrade that slice of the dashboard, never discard
+  // the whole (expensive) review.
+  const settled = await runPool(tasks, MAX_CONCURRENCY, Date.now() + GENERATION_BUDGET_MS);
+  const ok = settled.flatMap((r) => (r.status === "fulfilled" ? [r.value] : []));
+  const failures = settled.flatMap((r) => (r.status === "rejected" ? [String(r.reason).slice(0, 200)] : []));
+  if (failures.length) console.error(`[review] ${failures.length}/${tasks.length} generation call(s) failed:`, failures.join(" | "));
+  if (ok.length === 0) throw new Error("The review service is busy right now. Try again in a moment.");
+
+  const portfolioRes = ok.find((r) => r.kind === "portfolio")?.res as StructuredResult<PortfolioJudgment> | undefined;
+  const positionResults = ok.filter((r) => r.kind === "positions").map((r) => r.res as StructuredResult<PositionsJudgment>);
+
+  const usage = ok.reduce(
+    (acc, { res: r }) => ({
       inputTokens: acc.inputTokens + r.usage.inputTokens,
       cacheReadTokens: acc.cacheReadTokens + r.usage.cacheReadTokens,
       cacheWriteTokens: acc.cacheWriteTokens + r.usage.cacheWriteTokens,
@@ -234,7 +281,7 @@ export async function generateReview(userId: string): Promise<PortfolioReviewV2>
     }),
     { inputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, outputTokens: 0 },
   );
-  await logUsage("portfolio_review", portfolioRes.model, usage, { userId });
+  await logUsage("portfolio_review", ok[0].res.model, usage, { userId });
 
   const pos = {
     cards: positionResults.flatMap((r) => r.value.cards),
@@ -242,7 +289,7 @@ export async function generateReview(userId: string): Promise<PortfolioReviewV2>
     actions: positionResults.flatMap((r) => r.value.actions),
     perStock: positionResults.flatMap((r) => r.value.perStock),
   };
-  const p = portfolioRes.value;
+  const p: PortfolioJudgment = portfolioRes?.value ?? PortfolioJudgment.parse({});
   const value: ReviewJudgment = {
     ...p,
     review: { ...p.review, perStock: pos.perStock },

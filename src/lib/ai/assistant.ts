@@ -101,6 +101,13 @@ export async function runAssistantJsonLoose<T>(args: {
   model?: string;
   maxTokens?: number;
   effort?: "low" | "medium" | "high" | "xhigh" | "max";
+  /** Per-request wall-clock budget. The shared client allows 10 minutes, which is far longer than
+   *  a serverless function lives — without this a single stalled or rate-limit-retrying call eats
+   *  the whole function budget and the caller is killed with nothing to show. */
+  timeoutMs?: number;
+  /** SDK retry count. Keep low when several calls run concurrently: backoff on a 429 otherwise
+   *  pushes one call past the function's time limit. */
+  maxRetries?: number;
 }): Promise<StructuredResult<T>> {
   const model = args.model ?? env().ASSISTANT_MODEL;
   const params: Anthropic.MessageCreateParamsNonStreaming = {
@@ -110,7 +117,10 @@ export async function runAssistantJsonLoose<T>(args: {
     messages: [{ role: "user", content: args.user }],
     ...(args.effort ? { output_config: { effort: args.effort } } : {}),
   };
-  const message = await anthropic().messages.create(params);
+  const message = await anthropic().messages.create(params, {
+    ...(args.timeoutMs ? { timeout: args.timeoutMs } : {}),
+    ...(args.maxRetries !== undefined ? { maxRetries: args.maxRetries } : {}),
+  });
   const { text, usage, model: resolved } = finalizeText(message, model);
   try {
     return { value: args.schema.parse(extractJson(text)), usage, model: resolved };
