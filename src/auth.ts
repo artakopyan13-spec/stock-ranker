@@ -5,7 +5,7 @@ import Credentials from "next-auth/providers/credentials";
 import { PrismaAdapter } from "@auth/prisma-adapter";
 import { db } from "@/lib/db";
 import { env } from "@/lib/env";
-import { normalizeEmail, isValidEmail } from "@/lib/auth/otp";
+import { normalizeEmail, isValidEmail, emailCodeLoginEnabled, verifyEmailCode } from "@/lib/auth/otp";
 
 declare module "next-auth" {
   interface Session {
@@ -75,9 +75,34 @@ if (e.ACCESS_CODE) {
   );
 }
 
-{
-  // The one sign-in method: email + a nickname, no verification. Captures the email
-  // for the admin and creates/updates the user, then onboarding collects the answers.
+/** Providers that prove the person controls the email. Only these may ever grant admin. */
+const VERIFIED_PROVIDERS = new Set(["google", "email-code", "code", "dev"]);
+
+if (emailCodeLoginEnabled()) {
+  // Verified passwordless sign-in: a 6-digit code emailed to the address (see lib/auth/otp.ts).
+  providers.push(
+    Credentials({
+      id: "email-code",
+      name: "Email code",
+      credentials: { email: { label: "Email", type: "email" }, code: { label: "Code", type: "text" } },
+      async authorize(creds) {
+        const email = normalizeEmail(creds?.email);
+        const code = typeof creds?.code === "string" ? creds.code.trim() : "";
+        if (!(await verifyEmailCode(email, code))) return null;
+        const user = await db().user.upsert({
+          where: { email },
+          create: { email, name: email.split("@")[0], role: roleFor(email), emailVerified: new Date() },
+          update: { role: roleFor(email), emailVerified: new Date() },
+        });
+        return { id: user.id, email: user.email, name: user.name, role: user.role };
+      },
+    }),
+  );
+} else {
+  // Frictionless fallback used only while no email provider is configured: email + nickname,
+  // NOT verified. Because it proves nothing, it must never reach an admin account — otherwise
+  // typing the admin's address grants the admin panel and every user's data. Admins sign in with
+  // the access code (ACCESS_CODE) or Google; set RESEND_API_KEY to verify everyone instead.
   providers.push(
     Credentials({
       id: "profile",
@@ -86,17 +111,18 @@ if (e.ACCESS_CODE) {
       async authorize(creds) {
         const email = normalizeEmail(creds?.email);
         if (!isValidEmail(email)) return null;
+        if (roleFor(email) === "admin") return null; // admin accounts require a verified method
         const nickname = typeof creds?.name === "string" ? creds.name.trim().slice(0, 40) : "";
         const user = await db().user.upsert({
           where: { email },
-          create: { email, name: nickname || email.split("@")[0], role: roleFor(email), emailVerified: new Date() },
-          update: { role: roleFor(email), ...(nickname ? { name: nickname } : {}) },
+          create: { email, name: nickname || email.split("@")[0], role: "user" },
+          update: { ...(nickname ? { name: nickname } : {}) },
         });
-        // Capture the email for the admin (deduplicated), marked as signed-in.
+        // Capture the email for the admin (deduplicated). Not marked verified — nothing was verified.
         await db()
-          .emailLead.upsert({ where: { email }, create: { email, verifiedAt: new Date() }, update: { verifiedAt: new Date(), requests: { increment: 1 } } })
+          .emailLead.upsert({ where: { email }, create: { email }, update: { requests: { increment: 1 } } })
           .catch(() => {});
-        return { id: user.id, email: user.email, name: user.name, role: user.role };
+        return { id: user.id, email: user.email, name: user.name, role: "user" };
       },
     }),
   );
@@ -114,17 +140,21 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       const existing = await db().user.findUnique({ where: { email: user.email }, select: { banned: true } });
       return !existing?.banned; // banned users cannot sign in
     },
-    async jwt({ token, user }) {
+    async jwt({ token, user, account }) {
       if (user?.email) {
-        token.role = roleFor(user.email);
+        // Admin comes ONLY from a provider that verified the email. Defense in depth: the
+        // unverified provider already refuses admin addresses, but the role is never derived
+        // from an email string alone.
+        const verified = VERIFIED_PROVIDERS.has(account?.provider ?? "");
+        const role = verified ? roleFor(user.email) : "user";
+        token.role = role;
         const row = await db().user.findUnique({ where: { email: user.email }, select: { id: true, role: true } });
         if (row) {
           token.uid = row.id;
           // Promote to admin on the row if configured, so the admin panel sees the role.
-          if (roleFor(user.email) === "admin" && row.role !== "admin") {
+          if (role === "admin" && row.role !== "admin") {
             await db().user.update({ where: { id: row.id }, data: { role: "admin" } });
           }
-          token.role = roleFor(user.email);
         }
       }
       return token;

@@ -4,20 +4,23 @@ import { redirect } from "next/navigation";
 import { AuthError } from "next-auth";
 import { signIn, signOut, currentUser } from "@/auth";
 import { db } from "@/lib/db";
-import { normalizeEmail, requestEmailCode } from "@/lib/auth/otp";
+import { normalizeEmail, requestEmailCode, emailCodeLoginEnabled } from "@/lib/auth/otp";
 
 export type EmailCodeState = { step: "email" | "code"; email: string; error?: string; notice?: string; devCode?: string };
 
 /** Step 1 of email-code sign-in: generate + send a code. Returns state for the client form. */
 export async function sendEmailCode(_prev: EmailCodeState, formData: FormData): Promise<EmailCodeState> {
   const email = normalizeEmail(formData.get("email"));
+  // Server actions are public endpoints: refuse unless verified email login is actually on.
+  if (!emailCodeLoginEnabled()) return { step: "email", email, error: "Email-code sign-in isn't enabled." };
   const res = await requestEmailCode(email);
   if (!res.ok) return { step: "email", email, error: res.error };
+  const showDevCode = res.dev && process.env.NODE_ENV !== "production"; // never hand out codes in prod
   return {
     step: "code",
     email,
-    notice: res.dev ? "Dev mode: no email provider set — use the code below (also logged to the server console)." : `We emailed a 6-digit code to ${email}. It expires in 10 minutes.`,
-    devCode: res.devCode,
+    notice: showDevCode ? "Dev mode: no email provider set — use the code below (also logged to the server console)." : `We emailed a 6-digit code to ${email}. It expires in 10 minutes.`,
+    devCode: showDevCode ? res.devCode : undefined,
   };
 }
 
@@ -49,18 +52,28 @@ export async function devSignIn(formData: FormData): Promise<void> {
 export async function codeSignIn(formData: FormData): Promise<void> {
   const email = String(formData.get("email") ?? "");
   const code = String(formData.get("code") ?? "");
-  await signIn("code", { email, code, redirectTo: "/" });
+  try {
+    await signIn("code", { email, code, redirectTo: "/" });
+  } catch (error) {
+    if (error instanceof AuthError) redirect("/signin?error=admin");
+    throw error; // a successful sign-in throws NEXT_REDIRECT, which must propagate
+  }
 }
 
 export async function doSignOut(): Promise<void> {
   await signOut({ redirectTo: "/" });
 }
 
-/** The one sign-in: email + nickname, no verification. */
+/** Unverified email + nickname sign-in (only offered while no email provider is configured). */
 export async function profileSignIn(formData: FormData): Promise<void> {
   const email = normalizeEmail(formData.get("email"));
   const name = String(formData.get("name") ?? "").trim();
-  await signIn("profile", { email, name, redirectTo: "/" });
+  try {
+    await signIn("profile", { email, name, redirectTo: "/" });
+  } catch (error) {
+    if (error instanceof AuthError) redirect("/signin?error=profile");
+    throw error;
+  }
 }
 
 /** Save the welcome/onboarding answers, then continue into the app. */

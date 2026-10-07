@@ -16,6 +16,17 @@ export function isValidEmail(email: string): boolean {
   return EMAIL_RE.test(email) && email.length <= 254;
 }
 
+/**
+ * Verified email-code sign-in is only offered when codes are really emailed. Without an email
+ * provider the code is shown on screen (handy locally) — in production that would let anyone sign
+ * in as anyone, so there it requires RESEND_API_KEY.
+ */
+export function emailCodeLoginEnabled(): boolean {
+  const e = env();
+  if (e.RESEND_API_KEY) return true;
+  return Boolean(e.EMAIL_CODE_LOGIN) && process.env.NODE_ENV !== "production";
+}
+
 function hashCode(email: string, code: string): string {
   // Pepper with AUTH_SECRET so a DB leak alone doesn't reveal codes; email binds the hash.
   const pepper = env().AUTH_SECRET ?? "stock-ranker";
