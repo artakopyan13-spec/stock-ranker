@@ -2,6 +2,7 @@ import { currentUser } from "@/auth";
 import { clientIp } from "@/lib/request";
 import { gateFreshAnalysis } from "@/lib/quota/gate";
 import { generateReview } from "@/lib/portfolio/review";
+import { classifyAiError } from "@/lib/ai/errors";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60; // Hobby plan hard cap
@@ -18,6 +19,8 @@ export async function POST(req: Request): Promise<Response> {
     const review = await generateReview(user.id);
     return Response.json({ review });
   } catch (err) {
+    const ai = classifyAiError(err);
+    if (ai) return Response.json({ error: ai.message, code: ai.code }, { status: ai.status });
     return Response.json({ error: err instanceof Error ? err.message : "Could not generate the review." }, { status: 400 });
   }
 }

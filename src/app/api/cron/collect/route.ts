@@ -5,7 +5,7 @@ import { toApiError } from "@/lib/api-errors";
 import { env } from "@/lib/env";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 300;
+export const maxDuration = 60; // Vercel Hobby hard cap (anything higher is silently clamped)
 
 /** Morning: collect the batch, verify + store, send alerts, send the digest. Idempotent. */
 export async function GET(req: NextRequest): Promise<Response> {

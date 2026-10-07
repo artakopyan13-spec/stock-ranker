@@ -79,25 +79,33 @@ export function isFresh(stored: StoredAnalysis, now = new Date()): boolean {
 }
 
 /** Fetches data and runs the web-search fallback when the provider returned no news. */
-export async function loadDataForAnalysis(symbol: string, opts: { force?: boolean } = {}): Promise<StockData> {
+export async function loadDataForAnalysis(symbol: string, opts: { force?: boolean; webContext?: boolean } = {}): Promise<StockData> {
   const { data } = await getStockData(symbol, { force: opts.force });
+  return opts.webContext === false ? data : withWebContext(data);
+}
+
+/**
+ * Adds web-searched context the data provider can't give: a news fallback, and the latest
+ * reported quarter (which is usually after the model's training cutoff). Each search is
+ * time-boxed inside its own module and failures are swallowed — this enriches an analysis,
+ * it must never be the reason one fails.
+ */
+export async function withWebContext(data: StockData): Promise<StockData> {
   let out = data;
   if (out.news.length === 0 && env().NEWS_WEB_SEARCH_FALLBACK && env().ANTHROPIC_API_KEY) {
     try {
       const items = await searchNewsViaWeb(out.symbol, out.companyName);
       if (items.length) out = { ...out, news: items, newsSource: "web_search" };
     } catch (err) {
-      console.warn(`[news-search] fallback failed for ${symbol}:`, err instanceof Error ? err.message : err);
+      console.warn(`[news-search] fallback failed for ${out.symbol}:`, err instanceof Error ? err.message : err);
     }
   }
-  // Pull the latest reported quarter + recent developments via web search so the analysis
-  // reflects earnings published after the model's training cutoff.
   if (env().EARNINGS_WEB_SEARCH && env().ANTHROPIC_API_KEY) {
     try {
       const er = await searchLatestEarnings(out.symbol, out.companyName);
       if (er) out = { ...out, webContext: er.summary, webContextAsOf: er.asOf };
     } catch (err) {
-      console.warn(`[earnings-search] failed for ${symbol}:`, err instanceof Error ? err.message : err);
+      console.warn(`[earnings-search] failed for ${out.symbol}:`, err instanceof Error ? err.message : err);
     }
   }
   return out;

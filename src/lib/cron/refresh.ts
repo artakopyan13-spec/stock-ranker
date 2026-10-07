@@ -3,7 +3,8 @@ import { db } from "@/lib/db";
 import { env } from "@/lib/env";
 import { anthropic, logUsage } from "@/lib/ai/client";
 import { analyzeOnce, buildRequestParams } from "@/lib/ai/analyze";
-import { getLatestAnalysis, loadDataForAnalysis, persistAnalysis, VerificationFailedError } from "@/lib/analysis/service";
+import { getLatestAnalysis, loadDataForAnalysis, persistAnalysis, VerificationFailedError, withWebContext } from "@/lib/analysis/service";
+import { runPool } from "@/lib/async";
 import type { StockData } from "@/lib/data/types";
 import { decideRefresh } from "@/lib/cron/smart-refresh";
 import { allWatchedSymbols } from "@/lib/watchlists";
@@ -35,27 +36,50 @@ export function runKeyFor(now: Date = new Date()): string {
   return now.toISOString().slice(0, 10);
 }
 
-/** Fetches fresh data for every watched symbol and applies the smart-refresh rule. */
+/**
+ * Fetches fresh data for every watched symbol and applies the smart-refresh rule.
+ *
+ * Runs inside a 60s Hobby cron, so: data is fetched concurrently WITHOUT web search to make the
+ * refresh decision, and the (paid, slow) web-context search runs only for symbols that will
+ * actually be re-analyzed — never for ones about to be skipped — concurrently and under a deadline.
+ * A symbol whose web enrichment misses the deadline is still analyzed, just without it.
+ */
 export async function planRefresh(now: Date = new Date()): Promise<RefreshPlan> {
   const e = env();
+  const started = Date.now();
   const symbols = (await allWatchedSymbols()).slice(0, e.MAX_CRON_TICKERS);
   const plan: RefreshPlan = { runKey: runKeyFor(now), toAnalyze: [], skipped: [], errors: [] };
-  for (const symbol of symbols) {
-    try {
+
+  const decided = await runPool(
+    symbols.map((symbol) => async () => {
       const previous = await getLatestAnalysis(symbol);
-      const data = await loadDataForAnalysis(symbol, { force: true });
+      const data = await loadDataForAnalysis(symbol, { force: true, webContext: false });
       const decision = decideRefresh(previous ? { analysis: previous.analysis, createdAt: previous.createdAt } : null, data, {
         ttlHours: e.ANALYSIS_TTL_HOURS,
         priceMovePct: e.SMART_REFRESH_PRICE_MOVE_PCT,
         smart: e.SMART_REFRESH,
         now,
       });
-      if (decision.refresh) plan.toAnalyze.push({ symbol, data, previousTripwire: previous?.analysis.tripwire.description ?? null, reason: decision.reason });
-      else plan.skipped.push({ symbol, reason: decision.reason });
-    } catch (err) {
-      plan.errors.push({ symbol, error: err instanceof Error ? err.message : String(err) });
+      return { symbol, previous, data, decision };
+    }),
+    6,
+  );
+
+  decided.forEach((r, i) => {
+    if (r.status === "rejected") {
+      plan.errors.push({ symbol: symbols[i], error: r.reason instanceof Error ? r.reason.message : String(r.reason) });
+      return;
     }
-  }
+    const { symbol, previous, data, decision } = r.value;
+    if (decision.refresh) plan.toAnalyze.push({ symbol, data, previousTripwire: previous?.analysis.tripwire.description ?? null, reason: decision.reason });
+    else plan.skipped.push({ symbol, reason: decision.reason });
+  });
+
+  // Web context only for what will be analyzed; stop starting new searches ~35s into the cron.
+  const enriched = await runPool(plan.toAnalyze.map((t) => () => withWebContext(t.data)), 5, started + 35_000);
+  enriched.forEach((r, i) => {
+    if (r.status === "fulfilled") plan.toAnalyze[i] = { ...plan.toAnalyze[i], data: r.value };
+  });
   return plan;
 }
 

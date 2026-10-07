@@ -12,7 +12,7 @@ import { getPortfolioRow, parseHoldingsRow, savePortfolio, toPayload } from "@/l
 import { parseActivityCsv } from "@/lib/portfolio/activity";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 90;
+export const maxDuration = 60; // Vercel Hobby hard cap (anything higher is silently clamped)
 
 const IMAGE_TYPES = ["image/png", "image/jpeg", "image/webp", "image/gif"] as const;
 

@@ -7,7 +7,7 @@ import { rateLimit } from "@/lib/quota/ratelimit";
 import { isValidSymbol } from "@/lib/data";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 300;
+export const maxDuration = 60; // Vercel Hobby hard cap (anything higher is silently clamped)
 
 const Body = z.object({ ticker: z.string().min(1).max(12), force: z.boolean().optional() });
 

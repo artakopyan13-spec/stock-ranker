@@ -2,6 +2,8 @@ import { db } from "@/lib/db";
 import { env } from "@/lib/env";
 import { runAssistantJsonLoose, type StructuredResult } from "@/lib/ai/assistant";
 import { logUsage } from "@/lib/ai/client";
+import { classifyAiError } from "@/lib/ai/errors";
+import { runPool } from "@/lib/async";
 import { Analysis } from "@/lib/analysis/schema";
 import { getCompanyData } from "@/lib/data/company-source";
 import { getStockData } from "@/lib/data";
@@ -95,30 +97,6 @@ const MAX_CONCURRENCY = 6;
 /** Whole-generation wall-clock budget. The function itself dies at 60s with NOTHING to show, so we
  *  stop starting new work before then and return whatever finished instead. */
 const GENERATION_BUDGET_MS = 46_000;
-
-/** Promise.allSettled with a concurrency cap and a deadline, preserving input order. Tasks not
- *  started before the deadline are reported rejected rather than risking the function being killed. */
-async function runPool<T>(tasks: Array<() => Promise<T>>, limit: number, deadline: number): Promise<PromiseSettledResult<T>[]> {
-  const results = new Array<PromiseSettledResult<T>>(tasks.length);
-  let next = 0;
-  const worker = async (): Promise<void> => {
-    for (;;) {
-      const i = next++;
-      if (i >= tasks.length) return;
-      if (Date.now() >= deadline) {
-        results[i] = { status: "rejected", reason: new Error("skipped: generation time budget reached") };
-        continue;
-      }
-      try {
-        results[i] = { status: "fulfilled", value: await tasks[i]() };
-      } catch (reason) {
-        results[i] = { status: "rejected", reason };
-      }
-    }
-  };
-  await Promise.all(Array.from({ length: Math.min(limit, tasks.length) }, worker));
-  return results;
-}
 
 function summarizePositions(cards: ReviewCard[], enriched: Awaited<ReturnType<typeof enrich>>["holdings"]) {
   return enriched.map((h) => {
@@ -267,7 +245,11 @@ export async function generateReview(userId: string): Promise<PortfolioReviewV2>
   const ok = settled.flatMap((r) => (r.status === "fulfilled" ? [r.value] : []));
   const failures = settled.flatMap((r) => (r.status === "rejected" ? [String(r.reason).slice(0, 200)] : []));
   if (failures.length) console.error(`[review] ${failures.length}/${tasks.length} generation call(s) failed:`, failures.join(" | "));
-  if (ok.length === 0) throw new Error("The review service is busy right now. Try again in a moment.");
+  if (ok.length === 0) {
+    // Surface the real cause (e.g. an empty credit balance) instead of a generic "busy".
+    const first = settled.find((r) => r.status === "rejected") as PromiseRejectedResult | undefined;
+    throw new Error(classifyAiError(first?.reason)?.message ?? "The review couldn't be generated right now. Try again in a moment.");
+  }
 
   const portfolioRes = ok.find((r) => r.kind === "portfolio")?.res as StructuredResult<PortfolioJudgment> | undefined;
   const positionResults = ok.filter((r) => r.kind === "positions").map((r) => r.res as StructuredResult<PositionsJudgment>);

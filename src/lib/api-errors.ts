@@ -2,6 +2,7 @@ import { DailyCapReachedError, MissingApiKeyError } from "@/lib/ai/client";
 import { ModelRefusalError } from "@/lib/ai/analyze";
 import { DemoModeError, FreshAnalysisDeniedError, VerificationFailedError } from "@/lib/analysis/service";
 import { ProviderError, SymbolNotFoundError } from "@/lib/data/types";
+import { classifyAiError } from "@/lib/ai/errors";
 
 export interface ApiErrorShape {
   status: number;
@@ -20,6 +21,9 @@ export function toApiError(err: unknown): ApiErrorShape {
   if (err instanceof ModelRefusalError) return { status: 502, code: "model_refusal", message: err.message };
   if (err instanceof VerificationFailedError) return { status: 422, code: "verification_failed", message: "The analysis did not pass verification and was not published.", details: err.verification };
   if (err instanceof ProviderError) return { status: 502, code: "provider_error", message: err.message };
+  // Model-provider errors carry the provider's raw JSON (request ids, billing text) — never echo it.
+  const ai = classifyAiError(err);
+  if (ai) return ai;
   const message = err instanceof Error ? err.message : "Unexpected error";
   return { status: 500, code: "internal", message };
 }

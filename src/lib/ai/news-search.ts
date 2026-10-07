@@ -37,7 +37,7 @@ export async function searchNewsViaWeb(symbol: string, company: string, now: Dat
     output_config: { effort: "low", format: zodOutputFormat(Found) },
     tools: [{ type: "web_search_20260209", name: "web_search", max_uses: 3 }],
     messages: [{ role: "user", content: prompt }],
-  });
+  }, { timeout: 15000, maxRetries: 0 });
 
   const searches = response.content.filter((b): b is Anthropic.ServerToolUseBlock => b.type === "server_tool_use").length;
   await logUsage("news_search", e.NEWS_SEARCH_MODEL, usageFromMessage(response.usage), { symbol, webSearches: searches });
