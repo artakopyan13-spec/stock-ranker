@@ -6,6 +6,7 @@ import type { EnrichedHolding, Holding, PortfolioPayload } from "@/lib/portfolio
 import type { PortfolioReviewV2, BeatQQQ } from "@/lib/portfolio/review-schema";
 import { FCF_EMOJI } from "@/lib/analysis/schema";
 import { ChatPanel } from "@/components/ChatPanel";
+import { ProgressLine } from "@/components/ProgressLine";
 import { SkillDashboard } from "@/components/SkillDashboard";
 import { money, pct } from "@/lib/format";
 
@@ -201,9 +202,10 @@ export function PortfolioWorkspace({ initial, signedIn }: { initial: PortfolioPa
           {reviewing && (
             <div className="card p-4 flex items-center gap-3">
               <span className="inline-block w-2.5 h-2.5 rounded-full bg-gold animate-pulse shrink-0" />
-              <div>
+              <div className="flex-1">
                 <div className="text-sm">{REVIEW_STAGES[reviewStage]}</div>
-                <div className="text-xs text-dim mt-0.5">Full reviews take about a minute or two — it pulls live data for every holding and writes several pages. Refreshes are quicker.</div>
+                <div className="text-xs text-dim mt-0.5">This pulls live data for every holding and writes several pages — usually under a minute.</div>
+                <ProgressLine key={reviewing ? "on" : "off"} active={reviewing} estSeconds={45} label="Building your review" />
               </div>
             </div>
           )}
