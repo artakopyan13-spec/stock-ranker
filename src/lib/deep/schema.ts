@@ -1,11 +1,17 @@
 import { z } from "zod";
 
-/** 0–10 score. Robust: accepts 7, "7", "~7", "7/10" and clamps; junk → 0. */
-const Score = z.preprocess((v) => {
-  if (typeof v === "number") return Number.isFinite(v) ? v : 0;
-  const n = parseFloat(String(v ?? "").replace(/[^0-9.]/g, ""));
-  return Number.isFinite(n) ? Math.min(10, n) : 0;
-}, z.number()).catch(0);
+/** 0–10 score, or null when the model gave none (the UI shows "—", never a fake red 0).
+ *  Robust: 7, "7", "~7", "7/10", "7.5 out of 10" → the FIRST number, clamped to 0–10.
+ *  (The old parser stripped every non-digit, so "7/10" became 710 → clamped to 10.) */
+const Score = z
+  .preprocess((v) => {
+    if (typeof v === "number") return Number.isFinite(v) ? Math.max(0, Math.min(10, v)) : null;
+    const m = String(v ?? "").match(/-?\d+(?:\.\d+)?/);
+    if (!m) return null;
+    const n = parseFloat(m[0]);
+    return Number.isFinite(n) ? Math.max(0, Math.min(10, n)) : null;
+  }, z.number().nullable())
+  .catch(null);
 
 /** A string field that tolerates a stray number/null from the model. */
 const Str = z.preprocess((v) => (v === null || v === undefined ? "" : typeof v === "string" ? v : String(v)), z.string()).catch("");
@@ -57,7 +63,7 @@ export const DeepScorecard = z.object({
   overall: Score,
 });
 
-const emptyScorecard = { moat: 0, growth: 0, financialStrength: 0, management: 0, valuation: 0, catalysts: 0, risk: 0, overall: 0 };
+const emptyScorecard = { moat: null, growth: null, financialStrength: null, management: null, valuation: null, catalysts: null, risk: null, overall: null };
 
 export const DeepAnalysisOutput = z.object({
   asOf: Str, // YYYY-MM-DD
@@ -71,9 +77,9 @@ export const DeepAnalysisOutput = z.object({
       advantages: z.array(Str).catch([]), // the concrete sources of advantage
       summary: Str,
     })
-    .catch({ score: 0, strength: "", direction: "", advantages: [], summary: "" }),
+    .catch({ score: null, strength: "", direction: "", advantages: [], summary: "" }),
   bottlenecks: z.array(DeepBottleneck).catch([]), // 3–5, ranked most→least important
-  growth: z.object({ score: Score, summary: Str, metrics: z.array(DeepMetric).catch([]) }).catch({ score: 0, summary: "", metrics: [] }),
+  growth: z.object({ score: Score, summary: Str, metrics: z.array(DeepMetric).catch([]) }).catch({ score: null, summary: "", metrics: [] }),
   valuation: z
     .object({
       score: Score, // attractiveness: higher = cheaper for the quality
@@ -82,7 +88,7 @@ export const DeepAnalysisOutput = z.object({
       peers: z.array(DeepPeer).catch([]),
       greatCompanyVsStock: Str, // the "great company vs great stock at this price" call
     })
-    .catch({ score: 0, summary: "", multiples: [], peers: [], greatCompanyVsStock: "" }),
+    .catch({ score: null, summary: "", multiples: [], peers: [], greatCompanyVsStock: "" }),
   catalysts: z.array(DeepCatalyst).catch([]), // 3–5, next 6–24 months
   risks: z.array(DeepRisk).catch([]), // what could cause a 20%+ drawdown
   scenarios: z

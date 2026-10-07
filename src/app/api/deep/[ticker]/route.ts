@@ -2,7 +2,7 @@ import { currentUser } from "@/auth";
 import { clientIp } from "@/lib/request";
 import { rateLimit } from "@/lib/quota/ratelimit";
 import { isValidSymbol } from "@/lib/data";
-import { getOrCreateDeep, getCachedDeep } from "@/lib/deep/run";
+import { getOrCreateDeep, getCachedDeepWithMeta } from "@/lib/deep/run";
 import { FreshAnalysisDeniedError } from "@/lib/analysis/service";
 import { toApiError } from "@/lib/api-errors";
 
@@ -13,9 +13,9 @@ export const maxDuration = 60; // Hobby plan hard cap
 export async function GET(_req: Request, ctx: { params: Promise<{ ticker: string }> }): Promise<Response> {
   const { ticker } = await ctx.params;
   if (!isValidSymbol(ticker)) return Response.json({ error: "Invalid ticker" }, { status: 400 });
-  const data = await getCachedDeep(ticker);
-  if (!data) return Response.json({ error: "No deep analysis yet" }, { status: 404 });
-  return Response.json({ data, cached: true });
+  const cached = await getCachedDeepWithMeta(ticker);
+  if (!cached) return Response.json({ error: "No deep analysis yet" }, { status: 404 });
+  return Response.json({ ...cached, cached: true });
 }
 
 /** POST — build/refresh the deep analysis (gated paid action; degrades to cached + notice). */

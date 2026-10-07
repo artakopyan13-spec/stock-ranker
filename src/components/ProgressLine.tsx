@@ -24,7 +24,7 @@ export function ProgressLine({ active, estSeconds = 40, label = "Building" }: { 
   if (!active) return null;
   return (
     <div className="max-w-xs mx-auto mt-3" aria-live="polite">
-      <div className="h-1.5 rounded-full overflow-hidden" style={{ background: "var(--card2)" }}>
+      <div className="h-1.5 rounded-full overflow-hidden" style={{ background: "var(--card-2)" }}>
         <div className="h-full rounded-full" style={{ width: `${pct}%`, background: "linear-gradient(90deg,var(--purple),var(--gold))", transition: "width .3s ease" }} />
       </div>
       <div className="text-[0.68rem] text-muted mt-1 tabular-nums">{label}… {Math.round(pct)}%</div>

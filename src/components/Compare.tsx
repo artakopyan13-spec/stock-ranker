@@ -387,7 +387,7 @@ export function Compare({ initial }: { initial: string[] }) {
 function ScoreBar({ pctVal }: { pctVal: number | null }) {
   const w = pctVal === null ? 0 : Math.max(3, Math.min(100, pctVal));
   return (
-    <span className="inline-block h-1.5 rounded-full overflow-hidden align-middle" style={{ width: 64, background: "var(--card2)" }}>
+    <span className="inline-block h-1.5 rounded-full overflow-hidden align-middle" style={{ width: 64, background: "var(--card-2)" }}>
       <span className="block h-full rounded-full" style={{ width: `${w}%`, background: toneColor(pctVal) }} />
     </span>
   );

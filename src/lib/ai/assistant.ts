@@ -37,7 +37,7 @@ export async function streamAssistant(args: {
     max_tokens: args.maxTokens ?? 1024,
     system: [{ type: "text", text: args.system, cache_control: SYSTEM_CACHE }],
     messages: args.messages.map((m) => ({ role: m.role, content: m.content })),
-  });
+  }, requestOptions({}));
   for await (const event of stream) {
     if (event.type === "content_block_delta" && event.delta.type === "text_delta") {
       args.onDelta?.(event.delta.text);
@@ -45,6 +45,18 @@ export async function streamAssistant(args: {
   }
   const message = await stream.finalMessage();
   return finalizeText(message, model);
+}
+
+/**
+ * Every helper in this file runs inside a user request, and production functions die at 60s.
+ * The shared client allows 10 minutes (the off-Vercel worker needs that for long web searches),
+ * so without a per-request budget one slow or 429-retrying call silently consumes the whole
+ * function and the user gets nothing. Default: 50s, one retry. Callers can tighten it.
+ */
+const DEFAULT_TIMEOUT_MS = 50_000;
+const DEFAULT_MAX_RETRIES = 1;
+function requestOptions(args: { timeoutMs?: number; maxRetries?: number }): { timeout: number; maxRetries: number } {
+  return { timeout: args.timeoutMs ?? DEFAULT_TIMEOUT_MS, maxRetries: args.maxRetries ?? DEFAULT_MAX_RETRIES };
 }
 
 export interface StructuredResult<T> {
@@ -61,6 +73,8 @@ export async function runAssistantJson<T>(args: {
   model?: string;
   maxTokens?: number;
   effort?: "low" | "medium" | "high" | "xhigh" | "max";
+  timeoutMs?: number;
+  maxRetries?: number;
 }): Promise<StructuredResult<T>> {
   return runAssistantJsonContent({ ...args, content: args.user });
 }
@@ -73,6 +87,8 @@ export async function runAssistantJsonContent<T>(args: {
   model?: string;
   maxTokens?: number;
   effort?: "low" | "medium" | "high" | "xhigh" | "max";
+  timeoutMs?: number;
+  maxRetries?: number;
 }): Promise<StructuredResult<T>> {
   const model = args.model ?? env().ASSISTANT_MODEL;
   const params: Anthropic.MessageCreateParamsNonStreaming = {
@@ -85,7 +101,7 @@ export async function runAssistantJsonContent<T>(args: {
       format: zodOutputFormat(args.schema as z.ZodType),
     },
   };
-  const message = await anthropic().messages.create(params);
+  const message = await anthropic().messages.create(params, requestOptions(args));
   const { text, usage, model: resolved } = finalizeText(message, model);
   return { value: args.schema.parse(JSON.parse(text)), usage, model: resolved };
 }
@@ -117,10 +133,7 @@ export async function runAssistantJsonLoose<T>(args: {
     messages: [{ role: "user", content: args.user }],
     ...(args.effort ? { output_config: { effort: args.effort } } : {}),
   };
-  const message = await anthropic().messages.create(params, {
-    ...(args.timeoutMs ? { timeout: args.timeoutMs } : {}),
-    ...(args.maxRetries !== undefined ? { maxRetries: args.maxRetries } : {}),
-  });
+  const message = await anthropic().messages.create(params, requestOptions(args));
   const { text, usage, model: resolved } = finalizeText(message, model);
   try {
     return { value: args.schema.parse(extractJson(text)), usage, model: resolved };

@@ -89,7 +89,7 @@ export async function gateFreshAnalysis(input: GateInput): Promise<GateResult> {
   const quota = user.dailyQuota ?? caps.freshPerDay;
   const used = await userAnalysesToday(input.userId, now);
   if (used >= quota) {
-    return { allow: false, reason: "user_quota", message: `You've used today's ${quota} fresh analyses. Upgrade for more — or they reset at midnight UTC.` };
+    return { allow: false, reason: "user_quota", message: `You've used today's ${quota} fresh AI reports (analyses, deep dives, earnings, research, committees and reviews share this). Upgrade for more — or they reset at midnight UTC.` };
   }
 
   return { allow: true, userId: input.userId, remainingToday: quota - used };

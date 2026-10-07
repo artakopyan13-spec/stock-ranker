@@ -8,19 +8,30 @@ import { effectiveLimits } from "@/lib/quota/settings";
 import { spendToday } from "@/lib/quota/spend";
 import { FreshAnalysisDeniedError } from "@/lib/analysis/service";
 import { ResearchOutput } from "@/lib/research/schema";
+import { CANDIDATE_ROWS, isCurrent, metaOf, pickBest, type ReportMeta } from "@/lib/reports/freshness";
+import { classifyAiError } from "@/lib/ai/errors";
 
 const TTL_MS = 7 * 24 * 3_600_000; // industry research is stable for a week
+export const RESEARCH_PROMPT_VERSION = 1;
 const norm = (s: string) => s.trim().toLowerCase().replace(/\s+/g, " ").slice(0, 80);
 
 export interface ResearchResult {
   data: ResearchOutput;
   cached: boolean;
-  notice?: { reason: DenyReason; message: string };
+  meta: ReportMeta;
+  notice?: { reason: DenyReason | "refresh_failed" | "already_verified"; message: string };
 }
 
-async function latest(industry: string) {
-  return db().industryResearch.findFirst({ where: { industry }, orderBy: { createdAt: "desc" } });
+/** Best cached row: a current web-verified one first (see lib/reports/freshness). */
+async function best(industry: string) {
+  const rows = await db().industryResearch.findMany({ where: { industry }, orderBy: { createdAt: "desc" }, take: CANDIDATE_ROWS });
+  return pickBest(rows, RESEARCH_PROMPT_VERSION, TTL_MS);
 }
+
+const served = (row: { payload: string; createdAt: Date; mode: string; promptVersion: number }) => ({
+  data: ResearchOutput.parse(JSON.parse(row.payload)),
+  meta: metaOf(row, RESEARCH_PROMPT_VERSION, TTL_MS),
+});
 
 /** The AI call + store for one industry. No gating — callers decide policy. Returns null on refusal. */
 async function generateResearch(industry: string, industryInput: string, userId: string | null, web = false): Promise<ResearchOutput | null> {
@@ -59,14 +70,14 @@ Hard rules:
     output_config: { effort: "low", format: zodOutputFormat(ResearchOutput) },
     ...(web ? { tools: [{ type: "web_search_20260209" as const, name: "web_search", max_uses: 4 }] } : {}),
     messages: [{ role: "user", content: prompt }],
-  });
+  }, web ? {} : { timeout: 48_000, maxRetries: 0 }); // on-demand runs inside a 60s function
 
   const searches = resp.content.filter((b): b is Anthropic.ServerToolUseBlock => b.type === "server_tool_use").length;
   await logUsage("research", e.NEWS_SEARCH_MODEL, usageFromMessage(resp.usage), { userId, webSearches: searches });
 
   if (resp.stop_reason === "refusal" || !resp.parsed_output || resp.parsed_output.companies.length === 0) return null;
   const data = { ...resp.parsed_output, companies: resp.parsed_output.companies.map((c) => ({ ...c, ticker: c.ticker.toUpperCase() })) };
-  await db().industryResearch.create({ data: { industry, payload: JSON.stringify(data), model: e.NEWS_SEARCH_MODEL, usdCost: 0 } });
+  await db().industryResearch.create({ data: { industry, payload: JSON.stringify(data), model: e.NEWS_SEARCH_MODEL, usdCost: 0, mode: web ? "web" : "knowledge", promptVersion: RESEARCH_PROMPT_VERSION } });
   return data;
 }
 
@@ -79,27 +90,42 @@ export async function getOrCreateResearch(industryInput: string, opts: { userId?
   if (!industry) throw new FreshAnalysisDeniedError("no_key", "Type an industry or theme to research.");
   const e = env();
 
-  const existing = await latest(industry);
-  const fresh = existing ? Date.now() - existing.createdAt.getTime() < TTL_MS : false;
-  if (existing && fresh && !opts.force) return { data: JSON.parse(existing.payload), cached: true };
+  const existing = await best(industry);
+  const current = existing ? isCurrent(existing, RESEARCH_PROMPT_VERSION, TTL_MS) : false;
+  if (existing && current && !opts.force) return { ...served(existing), cached: true };
+  // Never let an on-demand (knowledge-only) regenerate replace a current web-verified result.
+  if (existing && current && existing.mode === "web") {
+    return { ...served(existing), cached: true, notice: { reason: "already_verified", message: "This research was verified against live sources recently, so it wasn't regenerated." } };
+  }
 
   if (!e.ANTHROPIC_API_KEY && !e.DEMO_MODE) {
-    if (existing) return { data: JSON.parse(existing.payload), cached: true };
+    if (existing) return { ...served(existing), cached: true };
     throw new FreshAnalysisDeniedError("no_key", "Research is temporarily unavailable.");
   }
 
   const gate = await gateFreshAnalysis({ userId: opts.userId ?? null, ip: opts.ip ?? "0.0.0.0" });
   if (!gate.allow) {
-    if (existing) return { data: JSON.parse(existing.payload), cached: true, notice: { reason: gate.reason, message: gate.message } };
+    if (existing) return { ...served(existing), cached: true, notice: { reason: gate.reason, message: gate.message } };
     throw new FreshAnalysisDeniedError(gate.reason, gate.message);
   }
 
-  const data = await generateResearch(industry, industryInput, opts.userId ?? null);
-  if (!data) {
-    if (existing) return { data: JSON.parse(existing.payload), cached: true };
-    throw new FreshAnalysisDeniedError("no_key", "Couldn't build research for that. Try a broader or clearer industry name.");
+  let data: ResearchOutput | null = null;
+  let failure: string | null = null;
+  try {
+    data = await generateResearch(industry, industryInput, opts.userId ?? null);
+  } catch (err) {
+    failure = classifyAiError(err)?.message ?? "The research run failed.";
+    console.error(`[research] generate failed for "${industry}":`, err instanceof Error ? err.message : err);
   }
-  return { data, cached: false };
+  if (!data) {
+    if (existing) {
+      const built = existing.createdAt.toISOString().slice(0, 10);
+      return { ...served(existing), cached: true, notice: { reason: "refresh_failed", message: `${failure ?? "The new run didn't complete."} Showing the version from ${built}.` } };
+    }
+    throw new FreshAnalysisDeniedError("no_key", failure ?? "Couldn't build research for that. Try a broader or clearer industry name.");
+  }
+  const row = await best(industry);
+  return { data, cached: false, meta: row ? metaOf(row, RESEARCH_PROMPT_VERSION, TTL_MS) : { mode: "knowledge", builtAt: new Date().toISOString(), outdated: false, expired: false } };
 }
 
 /** System refresh for the scheduled cron — no per-user quota, but respects kill switch + spend ceiling. */

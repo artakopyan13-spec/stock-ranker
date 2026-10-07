@@ -4,23 +4,27 @@ import { useEffect, useState } from "react";
 import type { DeepAnalysisOutput } from "@/lib/deep/schema";
 import { ProgressLine } from "@/components/ProgressLine";
 
-function toneFor(score: number): string {
+function toneFor(score: number | null): string {
+  if (score === null) return "var(--muted)";
   return score >= 7 ? "var(--green)" : score >= 5 ? "var(--gold)" : "var(--red)";
 }
-function ScoreTile({ label, score, big = false }: { label: string; score: number; big?: boolean }) {
+/** "7/10", or "—" when the model gave no score (never a fake red 0). */
+const outOf10 = (score: number | null) => (score === null ? "—" : `${score}/10`);
+function ScoreTile({ label, score, big = false }: { label: string; score: number | null; big?: boolean }) {
   return (
     <div className="card p-3 text-center">
       <div className="text-[0.6rem] uppercase tracking-wide text-muted">{label}</div>
       <div className={`${big ? "text-3xl" : "text-2xl"} font-bold tabular-nums mt-0.5`} style={{ color: toneFor(score) }}>
-        {score}
-        <span className="text-sm text-muted">/10</span>
+        {score ?? "—"}
+        {score !== null && <span className="text-sm text-muted">/10</span>}
       </div>
     </div>
   );
 }
-function SevBar({ v }: { v: number }) {
+function SevBar({ v }: { v: number | null }) {
+  if (v === null) return null;
   return (
-    <span className="inline-block h-1.5 w-16 rounded-full overflow-hidden align-middle" style={{ background: "var(--card2)" }}>
+    <span className="inline-block h-1.5 w-16 rounded-full overflow-hidden align-middle" style={{ background: "var(--card-2)" }}>
       <span className="block h-full rounded-full" style={{ width: `${Math.min(100, v * 10)}%`, background: v >= 7 ? "var(--red)" : v >= 5 ? "var(--gold)" : "var(--green)" }} />
     </span>
   );
@@ -122,7 +126,7 @@ export function DeepAnalysis({ symbol, signedIn = false }: { symbol: string; sig
       </div>
 
       {/* MOAT */}
-      <Section title={`Moat — ${data.moat.score}/10 · ${data.moat.strength} · ${data.moat.direction}`} defaultOpen>
+      <Section title={`Moat — ${outOf10(data.moat.score)} · ${data.moat.strength} · ${data.moat.direction}`} defaultOpen>
         <p className="text-sm text-muted mt-2 mb-3">{data.moat.summary}</p>
         <ul className="space-y-1.5 text-sm">
           {data.moat.advantages.map((a, i) => (
@@ -138,7 +142,7 @@ export function DeepAnalysis({ symbol, signedIn = false }: { symbol: string; sig
             <div key={i} className="card-2 p-3 rounded-lg">
               <div className="flex items-center justify-between gap-2 flex-wrap">
                 <div className="font-medium text-sm">{b.rank}. {b.title}</div>
-                <div className="flex items-center gap-2 text-xs text-muted">severity <SevBar v={b.severity} /> {b.severity}/10</div>
+                <div className="flex items-center gap-2 text-xs text-muted">severity <SevBar v={b.severity} /> {outOf10(b.severity)}</div>
               </div>
               <p className="text-xs text-muted mt-1">{b.detail}</p>
               <div className="mt-2 pl-3 border-l-2 border-line">
@@ -152,7 +156,7 @@ export function DeepAnalysis({ symbol, signedIn = false }: { symbol: string; sig
       </Section>
 
       {/* GROWTH */}
-      <Section title={`Growth — ${data.growth.score}/10`}>
+      <Section title={`Growth — ${outOf10(data.growth.score)}`}>
         <p className="text-sm text-muted mt-2 mb-3">{data.growth.summary}</p>
         <div className="overflow-x-auto">
           <table className="tbl w-full text-sm min-w-[420px]">
@@ -163,7 +167,7 @@ export function DeepAnalysis({ symbol, signedIn = false }: { symbol: string; sig
       </Section>
 
       {/* VALUATION */}
-      <Section title={`Valuation — ${data.valuation.score}/10 attractiveness`}>
+      <Section title={`Valuation — ${outOf10(data.valuation.score)} attractiveness`}>
         <p className="text-sm text-muted mt-2 mb-3">{data.valuation.summary}</p>
         <div className="overflow-x-auto mb-3">
           <table className="tbl w-full text-sm min-w-[460px]">

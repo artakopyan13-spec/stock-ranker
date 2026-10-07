@@ -8,18 +8,31 @@ import { effectiveLimits } from "@/lib/quota/settings";
 import { spendToday } from "@/lib/quota/spend";
 import { FreshAnalysisDeniedError } from "@/lib/analysis/service";
 import { EarningsReportOutput } from "@/lib/earnings/schema";
+import { CANDIDATE_ROWS, isCurrent, metaOf, pickBest, type ReportMeta } from "@/lib/reports/freshness";
+import { classifyAiError } from "@/lib/ai/errors";
 
 const TTL_MS = 7 * 24 * 3_600_000; // an earnings report is stable until the next report
+/** v2 = report the latest quarter the model can actually fill (v1 targeted the calendar-latest
+ *  quarter, past the training cutoff, and came back all "—"). Older rows read as outdated. */
+export const EARNINGS_PROMPT_VERSION = 2;
 
 export interface EarningsResult {
   data: EarningsReportOutput;
   cached: boolean;
-  notice?: { reason: DenyReason; message: string };
+  meta: ReportMeta;
+  notice?: { reason: DenyReason | "refresh_failed" | "already_verified"; message: string };
 }
 
-async function latest(symbol: string) {
-  return db().earningsReport.findFirst({ where: { symbol }, orderBy: { createdAt: "desc" } });
+/** Best cached row: a current web-verified one first (see lib/reports/freshness). */
+async function best(symbol: string) {
+  const rows = await db().earningsReport.findMany({ where: { symbol }, orderBy: { createdAt: "desc" }, take: CANDIDATE_ROWS });
+  return pickBest(rows, EARNINGS_PROMPT_VERSION, TTL_MS);
 }
+
+const served = (row: { payload: string; createdAt: Date; mode: string; promptVersion: number }) => ({
+  data: EarningsReportOutput.parse(JSON.parse(row.payload)),
+  meta: metaOf(row, EARNINGS_PROMPT_VERSION, TTL_MS),
+});
 
 async function generate(symbol: string, userId: string | null, web = false): Promise<EarningsReportOutput | null> {
   const e = env();
@@ -52,14 +65,14 @@ Hard rules:
     output_config: { effort: "low", format: zodOutputFormat(EarningsReportOutput) },
     ...(web ? { tools: [{ type: "web_search_20260209" as const, name: "web_search", max_uses: 5 }] } : {}),
     messages: [{ role: "user", content: prompt }],
-  });
+  }, web ? {} : { timeout: 48_000, maxRetries: 0 }); // on-demand runs inside a 60s function
 
   const searches = resp.content.filter((b): b is Anthropic.ServerToolUseBlock => b.type === "server_tool_use").length;
   await logUsage("earnings", e.NEWS_SEARCH_MODEL, usageFromMessage(resp.usage), { symbol, userId, webSearches: searches });
 
   if (resp.stop_reason === "refusal" || !resp.parsed_output || resp.parsed_output.metrics.length === 0) return null;
   const data = resp.parsed_output;
-  await db().earningsReport.create({ data: { symbol, payload: JSON.stringify(data), model: e.NEWS_SEARCH_MODEL, usdCost: 0 } });
+  await db().earningsReport.create({ data: { symbol, payload: JSON.stringify(data), model: e.NEWS_SEARCH_MODEL, usdCost: 0, mode: web ? "web" : "knowledge", promptVersion: EARNINGS_PROMPT_VERSION } });
   return data;
 }
 
@@ -68,32 +81,58 @@ export async function getOrCreateEarnings(symbolInput: string, opts: { userId?: 
   const symbol = symbolInput.toUpperCase();
   const e = env();
 
-  const existing = await latest(symbol);
-  const fresh = existing ? Date.now() - existing.createdAt.getTime() < TTL_MS : false;
-  if (existing && fresh && !opts.force) return { data: JSON.parse(existing.payload), cached: true };
+  const existing = await best(symbol);
+  const current = existing ? isCurrent(existing, EARNINGS_PROMPT_VERSION, TTL_MS) : false;
+  if (existing && current && !opts.force) return { ...served(existing), cached: true };
+  // Never let an on-demand (knowledge-only) rebuild replace a current web-verified report.
+  if (existing && current && existing.mode === "web") {
+    return { ...served(existing), cached: true, notice: { reason: "already_verified", message: "This report was verified against live sources recently, so it wasn't rebuilt." } };
+  }
 
   if (!e.ANTHROPIC_API_KEY && !e.DEMO_MODE) {
-    if (existing) return { data: JSON.parse(existing.payload), cached: true };
+    if (existing) return { ...served(existing), cached: true };
     throw new FreshAnalysisDeniedError("no_key", "Earnings reports are temporarily unavailable.");
   }
 
   const gate = await gateFreshAnalysis({ userId: opts.userId ?? null, ip: opts.ip ?? "0.0.0.0" });
   if (!gate.allow) {
-    if (existing) return { data: JSON.parse(existing.payload), cached: true, notice: { reason: gate.reason, message: gate.message } };
+    if (existing) return { ...served(existing), cached: true, notice: { reason: gate.reason, message: gate.message } };
     throw new FreshAnalysisDeniedError(gate.reason, gate.message);
   }
 
-  const data = await generate(symbol, opts.userId ?? null);
+  let data: EarningsReportOutput | null = null;
+  let failure: string | null = null;
+  try {
+    data = await generate(symbol, opts.userId ?? null);
+  } catch (err) {
+    failure = classifyAiError(err)?.message ?? "The rebuild failed.";
+    console.error(`[earnings] generate failed for ${symbol}:`, err instanceof Error ? err.message : err);
+  }
   if (!data) {
-    if (existing) return { data: JSON.parse(existing.payload), cached: true };
+    if (existing) {
+      const built = existing.createdAt.toISOString().slice(0, 10);
+      return { ...served(existing), cached: true, notice: { reason: "refresh_failed", message: `${failure ?? "The rebuild didn't complete."} Showing the version from ${built}.` } };
+    }
+    if (failure) throw new FreshAnalysisDeniedError("no_key", failure);
     throw new FreshAnalysisDeniedError("no_key", "Couldn't build an earnings report for that ticker yet.");
   }
-  return { data, cached: false };
+  const row = await best(symbol);
+  return { data, cached: false, meta: row ? metaOf(row, EARNINGS_PROMPT_VERSION, TTL_MS) : { mode: "knowledge", builtAt: new Date().toISOString(), outdated: false, expired: false } };
+}
+
+/** Best cached report + how it was sourced, for free. Null when none exists or it won't parse. */
+export async function getCachedEarningsWithMeta(symbolInput: string): Promise<{ data: EarningsReportOutput; meta: ReportMeta } | null> {
+  const row = await best(symbolInput.toUpperCase());
+  if (!row) return null;
+  try {
+    return served(row);
+  } catch {
+    return null;
+  }
 }
 
 export async function getCachedEarnings(symbolInput: string): Promise<EarningsReportOutput | null> {
-  const row = await latest(symbolInput.toUpperCase());
-  return row ? (JSON.parse(row.payload) as EarningsReportOutput) : null;
+  return (await getCachedEarningsWithMeta(symbolInput))?.data ?? null;
 }
 
 /** System refresh for the scheduled worker — no per-user quota, but respects kill switch + spend ceiling. */

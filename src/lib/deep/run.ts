@@ -8,8 +8,12 @@ import { spendToday } from "@/lib/quota/spend";
 import { allWatchedSymbols } from "@/lib/watchlists";
 import { FreshAnalysisDeniedError } from "@/lib/analysis/service";
 import { DeepAnalysisOutput } from "@/lib/deep/schema";
+import { CANDIDATE_ROWS, isCurrent, metaOf, pickBest, type ReportMeta } from "@/lib/reports/freshness";
+import { classifyAiError } from "@/lib/ai/errors";
 
 const TTL_MS = 7 * 24 * 3_600_000; // deep analysis is stable for about a week
+/** Bump when the prompt/schema changes materially; older rows then read as outdated. v2 = filled ~approximate figures (v1 left them blank). */
+export const DEEP_PROMPT_VERSION = 2;
 
 /** Pull a JSON object out of a model's final text (strips fences / surrounding prose). */
 function extractJson(text: string): unknown {
@@ -29,12 +33,20 @@ function extractJson(text: string): unknown {
 export interface DeepResult {
   data: DeepAnalysisOutput;
   cached: boolean;
-  notice?: { reason: DenyReason; message: string };
+  meta: ReportMeta;
+  notice?: { reason: DenyReason | "refresh_failed" | "already_verified"; message: string };
 }
 
-async function latest(symbol: string) {
-  return db().deepAnalysis.findFirst({ where: { symbol }, orderBy: { createdAt: "desc" } });
+/** Best cached row for a symbol: a current web-verified one first (see lib/reports/freshness). */
+async function best(symbol: string) {
+  const rows = await db().deepAnalysis.findMany({ where: { symbol }, orderBy: { createdAt: "desc" }, take: CANDIDATE_ROWS });
+  return pickBest(rows, DEEP_PROMPT_VERSION, TTL_MS);
 }
+
+const served = (row: { payload: string; createdAt: Date; mode: string; promptVersion: number }) => ({
+  data: DeepAnalysisOutput.parse(JSON.parse(row.payload)),
+  meta: metaOf(row, DEEP_PROMPT_VERSION, TTL_MS),
+});
 
 async function generate(symbol: string, userId: string | null, web = false): Promise<DeepAnalysisOutput | null> {
   const e = env();
@@ -77,7 +89,7 @@ When you have finished researching, return ONLY one minified JSON object — no 
     output_config: { effort: "low" },
     ...(web ? { tools: [{ type: "web_search_20260209" as const, name: "web_search", max_uses: 6 }] } : {}),
     messages: [{ role: "user", content: prompt }],
-  });
+  }, web ? {} : { timeout: 48_000, maxRetries: 0 }); // on-demand runs inside a 60s function
 
   const searches = resp.content.filter((b): b is Anthropic.ServerToolUseBlock => b.type === "server_tool_use").length;
   await logUsage("deep", e.NEWS_SEARCH_MODEL, usageFromMessage(resp.usage), { symbol, userId, webSearches: searches });
@@ -90,7 +102,7 @@ When you have finished researching, return ONLY one minified JSON object — no 
     return null;
   }
   const data = parsed.data;
-  await db().deepAnalysis.create({ data: { symbol, payload: JSON.stringify(data), model: e.NEWS_SEARCH_MODEL, usdCost: 0 } });
+  await db().deepAnalysis.create({ data: { symbol, payload: JSON.stringify(data), model: e.NEWS_SEARCH_MODEL, usdCost: 0, mode: web ? "web" : "knowledge", promptVersion: DEEP_PROMPT_VERSION } });
   return data;
 }
 
@@ -99,48 +111,83 @@ export async function getOrCreateDeep(symbolInput: string, opts: { userId?: stri
   const symbol = symbolInput.toUpperCase();
   const e = env();
 
-  const existing = await latest(symbol);
-  const fresh = existing ? Date.now() - existing.createdAt.getTime() < TTL_MS : false;
-  if (existing && fresh && !opts.force) return { data: JSON.parse(existing.payload), cached: true };
+  const existing = await best(symbol);
+  const current = existing ? isCurrent(existing, DEEP_PROMPT_VERSION, TTL_MS) : false;
+  if (existing && current && !opts.force) return { ...served(existing), cached: true };
+  // Never let an on-demand (knowledge-only) rebuild replace a current web-verified report.
+  if (existing && current && existing.mode === "web") {
+    return { ...served(existing), cached: true, notice: { reason: "already_verified", message: "This report was verified against live sources recently, so it wasn't rebuilt." } };
+  }
 
   if (!e.ANTHROPIC_API_KEY && !e.DEMO_MODE) {
-    if (existing) return { data: JSON.parse(existing.payload), cached: true };
+    if (existing) return { ...served(existing), cached: true };
     throw new FreshAnalysisDeniedError("no_key", "Deep analysis is temporarily unavailable.");
   }
 
   const gate = await gateFreshAnalysis({ userId: opts.userId ?? null, ip: opts.ip ?? "0.0.0.0" });
   if (!gate.allow) {
-    if (existing) return { data: JSON.parse(existing.payload), cached: true, notice: { reason: gate.reason, message: gate.message } };
+    if (existing) return { ...served(existing), cached: true, notice: { reason: gate.reason, message: gate.message } };
     throw new FreshAnalysisDeniedError(gate.reason, gate.message);
   }
 
-  const data = await generate(symbol, opts.userId ?? null);
+  let data: DeepAnalysisOutput | null = null;
+  let failure: string | null = null;
+  try {
+    data = await generate(symbol, opts.userId ?? null);
+  } catch (err) {
+    failure = classifyAiError(err)?.message ?? "The rebuild failed.";
+    console.error(`[deep] generate failed for ${symbol}:`, err instanceof Error ? err.message : err);
+  }
   if (!data) {
-    if (existing) return { data: JSON.parse(existing.payload), cached: true };
+    // Degrade to the report we already have — with a notice, so it doesn't look like nothing happened.
+    if (existing) {
+      const built = existing.createdAt.toISOString().slice(0, 10);
+      return { ...served(existing), cached: true, notice: { reason: "refresh_failed", message: `${failure ?? "The rebuild didn't complete."} Showing the version from ${built}.` } };
+    }
+    if (failure) throw new FreshAnalysisDeniedError("no_key", failure);
     throw new FreshAnalysisDeniedError("no_key", "Couldn't build a deep analysis for that ticker yet.");
   }
-  return { data, cached: false };
+  const row = await best(symbol);
+  return { data, cached: false, meta: row ? metaOf(row, DEEP_PROMPT_VERSION, TTL_MS) : { mode: "knowledge", builtAt: new Date().toISOString(), outdated: false, expired: false } };
+}
+
+/** Best cached report + how it was sourced, for free (no generation). Null when none exists or it won't parse. */
+export async function getCachedDeepWithMeta(symbolInput: string): Promise<{ data: DeepAnalysisOutput; meta: ReportMeta } | null> {
+  const row = await best(symbolInput.toUpperCase());
+  if (!row) return null;
+  try {
+    return served(row);
+  } catch {
+    return null; // a row from an incompatible older schema — treat as missing rather than 500
+  }
 }
 
 export async function getCachedDeep(symbolInput: string): Promise<DeepAnalysisOutput | null> {
-  const row = await latest(symbolInput.toUpperCase());
-  return row ? (JSON.parse(row.payload) as DeepAnalysisOutput) : null;
+  return (await getCachedDeepWithMeta(symbolInput))?.data ?? null;
 }
 
-/** Watched symbols whose EXISTING deep analysis has gone stale, oldest first (keep-warm only —
- *  never generates brand-new reports, so the scheduler can't balloon cost). */
+/** Watched symbols that have a deep analysis but no CURRENT web-verified one (knowledge-only,
+ *  outdated prompt, or expired), oldest first. Keep-warm only — never generates brand-new reports,
+ *  so the scheduler can't balloon cost. */
 export async function staleWatchedDeepSymbols(limit = 4): Promise<string[]> {
   const watched = (await allWatchedSymbols()).map((s) => s.toUpperCase());
   if (watched.length === 0) return [];
-  const cutoff = Date.now() - TTL_MS;
-  const rows = await db().deepAnalysis.findMany({ where: { symbol: { in: watched } }, orderBy: { createdAt: "desc" }, select: { symbol: true, createdAt: true } });
-  const latestBySym = new Map<string, Date>();
-  for (const r of rows) if (!latestBySym.has(r.symbol)) latestBySym.set(r.symbol, r.createdAt);
-  return [...latestBySym.entries()]
-    .filter(([, d]) => d.getTime() < cutoff)
+  const rows = await db().deepAnalysis.findMany({
+    where: { symbol: { in: watched } },
+    orderBy: { createdAt: "desc" },
+    select: { symbol: true, createdAt: true, mode: true, promptVersion: true },
+  });
+  const newest = new Map<string, Date>();
+  const hasCurrentWeb = new Set<string>();
+  for (const r of rows) {
+    if (!newest.has(r.symbol)) newest.set(r.symbol, r.createdAt);
+    if (r.mode === "web" && isCurrent({ ...r, payload: "" }, DEEP_PROMPT_VERSION, TTL_MS)) hasCurrentWeb.add(r.symbol);
+  }
+  return [...newest.entries()]
+    .filter(([sym]) => !hasCurrentWeb.has(sym))
     .sort((a, b) => a[1].getTime() - b[1].getTime())
     .slice(0, limit)
-    .map(([s]) => s);
+    .map(([sym]) => sym);
 }
 
 /** System refresh for the scheduler — no per-user quota, but respects kill switch + spend ceiling. */

@@ -10,9 +10,15 @@ export async function spendToday(now = new Date()): Promise<number> {
   return rows._sum.usd ?? 0;
 }
 
-/** Kinds that consume a "fresh analysis" credit — real analyses, committee debates, full portfolio reviews. */
+/** Kinds counted against the GLOBAL daily analysis cap. Deliberately excludes deep/earnings/research:
+ *  the off-Vercel refresh worker logs those under the system user many times a day, and counting
+ *  them here would exhaust the global cap and lock real users out. Spend is still bounded by the
+ *  daily USD ceiling, which sees every logged call. */
 const FRESH_KINDS = ["analysis", "batch_analysis", "committee", "portfolio_review"];
-const USER_FRESH_KINDS = ["analysis", "committee", "portfolio_review"];
+/** Kinds that use up a USER's daily fresh-AI credits. Every user-triggered paid generation must be
+ *  here — deep/earnings/research were missing, so a free user could force-regenerate them without
+ *  limit and burn the global spend ceiling, switching AI off for everyone. */
+const USER_FRESH_KINDS = ["analysis", "committee", "portfolio_review", "deep", "earnings", "research"];
 
 /** Fresh + batch analyses + committees run since UTC midnight (global cap counter). */
 export async function analysesToday(now = new Date()): Promise<number> {

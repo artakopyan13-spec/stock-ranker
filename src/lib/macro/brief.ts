@@ -7,15 +7,34 @@ import { gateFreshAnalysis, type DenyReason } from "@/lib/quota/gate";
 import { effectiveLimits } from "@/lib/quota/settings";
 import { spendToday } from "@/lib/quota/spend";
 import { MacroBriefOutput } from "@/lib/macro/schema";
+import { CANDIDATE_ROWS, metaOf, pickBest, type ReportMeta } from "@/lib/reports/freshness";
+
+/** A briefing older than this is labelled stale in the UI (the worker refreshes every 3h). */
+export const MACRO_STALE_MS = 6 * 3_600_000;
+export const MACRO_PROMPT_VERSION = 1;
 
 export interface MacroBriefResult {
   data: MacroBriefOutput | null;
   cached: boolean;
+  meta?: ReportMeta;
   notice?: { reason: DenyReason; message: string };
 }
 
-async function latest() {
-  return db().macroBrief.findFirst({ where: { kind: "brief" }, orderBy: { createdAt: "desc" } });
+/** Best briefing: a recent web-verified one beats a newer knowledge-only seed (see lib/reports/freshness). */
+async function best() {
+  const rows = await db().macroBrief.findMany({ where: { kind: "brief" }, orderBy: { createdAt: "desc" }, take: CANDIDATE_ROWS });
+  return pickBest(rows, MACRO_PROMPT_VERSION, MACRO_STALE_MS);
+}
+
+/** The briefing to show + how/when it was built. Null when none exists or it won't parse. */
+export async function getMacroBriefWithMeta(): Promise<{ data: MacroBriefOutput; meta: ReportMeta } | null> {
+  const row = await best();
+  if (!row) return null;
+  try {
+    return { data: MacroBriefOutput.parse(JSON.parse(row.payload)), meta: metaOf(row, MACRO_PROMPT_VERSION, MACRO_STALE_MS) };
+  } catch {
+    return null;
+  }
 }
 
 /** The AI call + store. No gating — callers (user path / cron) decide policy. Returns null on refusal. */
@@ -48,14 +67,14 @@ Hard rules: NEVER invent a quote, a specific number, or a dated event. Prefer le
     output_config: { effort: "low", format: zodOutputFormat(MacroBriefOutput) },
     ...(web ? { tools: [{ type: "web_search_20260209" as const, name: "web_search", max_uses: 5 }] } : {}),
     messages: [{ role: "user", content: prompt }],
-  });
+  }, web ? {} : { timeout: 48_000, maxRetries: 0 }); // on-demand runs inside a 60s function
 
   const searches = resp.content.filter((b): b is Anthropic.ServerToolUseBlock => b.type === "server_tool_use").length;
   await logUsage("macro", e.NEWS_SEARCH_MODEL, usageFromMessage(resp.usage), { userId, webSearches: searches });
 
   if (resp.stop_reason === "refusal" || !resp.parsed_output) return null;
   const data = resp.parsed_output;
-  await db().macroBrief.create({ data: { kind: "brief", payload: JSON.stringify(data), model: e.NEWS_SEARCH_MODEL, usdCost: 0 } });
+  await db().macroBrief.create({ data: { kind: "brief", payload: JSON.stringify(data), model: e.NEWS_SEARCH_MODEL, usdCost: 0, mode: web ? "web" : "knowledge", promptVersion: MACRO_PROMPT_VERSION } });
   return data;
 }
 
@@ -65,11 +84,11 @@ Hard rules: NEVER invent a quote, a specific number, or a dated event. Prefer le
  */
 export async function getOrCreateMacroBrief(opts: { userId?: string | null; ip?: string; force?: boolean } = {}): Promise<MacroBriefResult> {
   const e = env();
-  const existing = await latest();
   // On Vercel we can't run the live web briefing inside the 60s cap, so once a brief exists we always
   // serve it — the live, source-dated version is refreshed out-of-band by the scheduled worker. We
   // only ever generate here to SEED an empty cache (knowledge-only: scheduled events, no live news).
-  if (existing) return { data: JSON.parse(existing.payload), cached: true };
+  const existing = await getMacroBriefWithMeta();
+  if (existing) return { ...existing, cached: true };
 
   if (!e.ANTHROPIC_API_KEY && !e.DEMO_MODE) return { data: null, cached: false };
 
