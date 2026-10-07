@@ -3,9 +3,14 @@ import Link from "next/link";
 import { loadUniverse } from "@/lib/universe";
 import { FCF_EMOJI } from "@/lib/analysis/schema";
 import { ActionChip } from "@/components/ui";
-import { ago, money, multiple, pct } from "@/lib/format";
+import { ago, multiple, pct } from "@/lib/format";
 
-export const metadata: Metadata = { title: "Top Rated" };
+export const metadata: Metadata = {
+  title: "Top Rated",
+  description: "The highest-rated and most-searched stocks from every FCF-first AI analysis in the shared cache.",
+};
+
+const dash = (s: string, v: number | null) => (v === null ? "—" : s);
 export const dynamic = "force-dynamic";
 
 export default async function LeaderboardPage({ searchParams }: PageProps<"/leaderboard">) {
@@ -38,18 +43,18 @@ export default async function LeaderboardPage({ searchParams }: PageProps<"/lead
                   <td className="text-gold font-semibold">{r.rating}/10</td>
                   <td><ActionChip action={r.action as "BUY" | "HOLD" | "SELL"} /></td>
                   <td title={r.fcfVerdict}>{FCF_EMOJI[r.fcfVerdict as keyof typeof FCF_EMOJI]}</td>
-                  <td>{pct(r.fcfMarginPct)}</td>
-                  <td>{pct(r.revenueGrowthPct, 1, true)}</td>
-                  <td>{multiple(r.forwardPE)}</td>
+                  <td>{dash(pct(r.fcfMarginPct), r.fcfMarginPct)}</td>
+                  <td>{dash(pct(r.revenueGrowthPct, 1, true), r.revenueGrowthPct)}</td>
+                  <td>{r.forwardPE !== null && r.forwardPE <= 0 ? "n/m" : dash(multiple(r.forwardPE), r.forwardPE)}</td>
                   <td className="text-muted">{r.searchCount}</td>
-                  <td className="text-xs text-muted">{ago(r.analyzedAt)}</td>
+                  <td className="text-xs text-muted whitespace-nowrap">{ago(r.analyzedAt)}{r.stale && <span className="chip chip-red ml-1">stale</span>}</td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
       )}
-      <p className="text-xs text-dim">Market cap shown where available: {money(sorted[0]?.marketCap ?? null, sorted[0]?.currency ?? "USD")} is the largest here. Ratings are the model&apos;s judgment, not fact.</p>
+      <p className="text-xs text-dim">Ratings are the model&apos;s judgment, not fact. A <span className="text-red">stale</span> tag means the analysis is over a week old or was built on stale data.</p>
     </div>
   );
 }

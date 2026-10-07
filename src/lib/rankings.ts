@@ -1,7 +1,7 @@
 import { db } from "@/lib/db";
 import { sortRows, type RankingRow } from "@/lib/rankings-sort";
 import { Analysis } from "@/lib/analysis/schema";
-import { getWatchlist, type WatchlistSummary } from "@/lib/watchlists";
+import { canViewWatchlist, getWatchlist, type WatchlistSummary } from "@/lib/watchlists";
 
 export type { RankingRow, SortKey } from "@/lib/rankings-sort";
 export { sortRows } from "@/lib/rankings-sort";
@@ -14,10 +14,11 @@ export interface Rankings {
 }
 
 
-/** Ranking rows for a watchlist from the latest verified analysis of each ticker. */
-export async function getRankings(slug: string): Promise<Rankings | null> {
+/** Ranking rows for a watchlist from the latest verified analysis of each ticker. Returns null when
+ *  the list doesn't exist OR the viewer may not see it (private lists look exactly like missing ones). */
+export async function getRankings(slug: string, viewer: { id?: string | null; role?: string | null } | null = null): Promise<Rankings | null> {
   const watchlist = await getWatchlist(slug);
-  if (!watchlist) return null;
+  if (!watchlist || !canViewWatchlist(watchlist, viewer)) return null;
   const prisma = db();
   const rows: RankingRow[] = [];
   const today = new Date().toISOString().slice(0, 10);

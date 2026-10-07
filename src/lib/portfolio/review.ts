@@ -2,6 +2,7 @@ import { db } from "@/lib/db";
 import { env } from "@/lib/env";
 import { runAssistantJsonLoose, type StructuredResult } from "@/lib/ai/assistant";
 import { logUsage } from "@/lib/ai/client";
+import { usdFor } from "@/lib/ai/pricing";
 import { classifyAiError } from "@/lib/ai/errors";
 import { runPool } from "@/lib/async";
 import { Analysis } from "@/lib/analysis/schema";
@@ -94,9 +95,16 @@ function chunk<T>(items: T[], size: number): T[][] {
 /** Most calls in flight at once — enough that a normal portfolio finishes in a single wave, low
  *  enough not to trip rate limits (backoff on a 429 would push us past the function's time limit). */
 const MAX_CONCURRENCY = 6;
-/** Whole-generation wall-clock budget. The function itself dies at 60s with NOTHING to show, so we
- *  stop starting new work before then and return whatever finished instead. */
-const GENERATION_BUDGET_MS = 46_000;
+/** Every model call must be finished this long after the REQUEST started (not after the data
+ *  prelude). The function dies at 60s with nothing to show; the rest is for saving + responding. */
+const REQUEST_DEADLINE_MS = 50_000;
+/** Longest a single call may run. */
+const CALL_TIMEOUT_MS = 42_000;
+/** Don't start a call with less than this left — it couldn't finish a useful answer. */
+const MIN_CALL_MS = 12_000;
+
+/** Ticker key that survives model spelling drift: "BRK.B", "BRK-B" and "brk b" all match. */
+const normTicker = (s: string) => s.replace(/[^A-Za-z0-9]/g, "").toUpperCase();
 
 function summarizePositions(cards: ReviewCard[], enriched: Awaited<ReturnType<typeof enrich>>["holdings"]) {
   return enriched.map((h) => {
@@ -146,8 +154,16 @@ async function ideaCandidates(heldSectors: Set<string>) {
     .slice(0, 6);
 }
 
-/** Generates and stores the full skill-style review. Caller must gate for cost first. */
-export async function generateReview(userId: string): Promise<PortfolioReviewV2> {
+export interface GenerateReviewOptions {
+  /** Date.now() when the HTTP request arrived — the time budget is measured from here. */
+  startedAt: number;
+  /** Placeholder usage row inserted right after the quota gate; updated with the real cost. */
+  usageLogId?: string;
+}
+
+/** Generates and stores the full skill-style review. Caller must gate for cost first.
+ *  `stale` = the holdings/cash changed while generating, so the review was NOT saved. */
+export async function generateReview(userId: string, opts: GenerateReviewOptions): Promise<{ review: PortfolioReviewV2; stale: boolean }> {
   const row = await getPortfolioRow(userId);
   if (!row) throw new Error("No portfolio to review yet.");
   const { holdings, metrics } = await enrich(row);
@@ -200,7 +216,7 @@ export async function generateReview(userId: string): Promise<PortfolioReviewV2>
       const a = analysisBy.get(h.symbol);
       return a ? { t: h.symbol, bull: a.thesis.bull, bear: a.thesis.bear, catalysts: a.catalysts.slice(0, 3), forecast: a.forecast12m, nextTripwire: a.tripwire.description } : null;
     }).filter(Boolean),
-    activity: activity ? { netDeposits: activity.netDeposits, realized: activity.realized, income: activity.income, fees: activity.fees, closed: activity.closed, endDate: activity.endDate } : null,
+    activity: activity ? { netDeposits: activity.netDeposits, realized: activity.realized, income: activity.income, fees: activity.fees, closed: activity.closed, endDate: activity.endDate, gaps: activity.warnings ?? [] } : null,
     ideaCandidates: ideas,
     benchmarkQQQ,
   };
@@ -217,7 +233,14 @@ export async function generateReview(userId: string): Promise<PortfolioReviewV2>
   // client otherwise allows 10 minutes, so one stalled or 429-backing-off call would silently burn
   // the whole budget and the function would be killed with nothing to show. Concurrency is capped
   // so a large portfolio doesn't fan out wide enough to trip rate limits.
-  const callOpts = { model, effort: "low" as const, maxTokens: 9000, timeoutMs: 42_000, maxRetries: 1 };
+  // The timeout is computed when the task STARTS, so a call that begins late gets only what's left
+  // of the request budget, and there is no retry (a retry doubles the worst case past the cap).
+  const deadline = opts.startedAt + REQUEST_DEADLINE_MS;
+  const callOpts = () => {
+    const left = deadline - Date.now();
+    if (left < MIN_CALL_MS) throw new Error("skipped: time budget reached");
+    return { model, effort: "low" as const, maxTokens: 9000, timeoutMs: Math.min(CALL_TIMEOUT_MS, left), maxRetries: 0 };
+  };
   const tasks: Array<() => Promise<{ kind: "portfolio" | "positions"; res: StructuredResult<PortfolioJudgment | PositionsJudgment> }>> = [
     async () => ({
       kind: "portfolio" as const,
@@ -225,7 +248,7 @@ export async function generateReview(userId: string): Promise<PortfolioReviewV2>
         system: `${PORTFOLIO_SYSTEM}\n\nReturn a JSON object with EXACTLY these keys and shapes (example values are illustrative — replace them, keep every key):\n${PORTFOLIO_SHAPE}`,
         user: `FACTS:\n${JSON.stringify(facts, null, 1)}\n\nProduce the portfolio-level review JSON. Fill beatQQQ with a concrete, honest plan to outperform QQQ grounded in benchmarkQQQ and the holdings' real numbers.`,
         schema: PortfolioJudgment,
-        ...callOpts,
+        ...callOpts(),
       }),
     }),
     ...batches.map((batch) => async () => ({
@@ -234,14 +257,14 @@ export async function generateReview(userId: string): Promise<PortfolioReviewV2>
         system: `${POSITIONS_SYSTEM}\n\nReturn a JSON object with EXACTLY these keys and shapes (example values are illustrative — replace them, keep every key):\n${POSITIONS_SHAPE}`,
         user: `FACTS:\n${JSON.stringify({ ...facts, positions: batch }, null, 1)}\n\nProduce the per-position JSON for EXACTLY these ${batch.length} position(s): ${batch.map((x) => x.t).join(", ")}. One zone, one action, one card and one perStock entry for each.`,
         schema: PositionsJudgment,
-        ...callOpts,
+        ...callOpts(),
       }),
     })),
   ];
 
   // allSettled, not all: one failed batch must degrade that slice of the dashboard, never discard
   // the whole (expensive) review.
-  const settled = await runPool(tasks, MAX_CONCURRENCY, Date.now() + GENERATION_BUDGET_MS);
+  const settled = await runPool(tasks, MAX_CONCURRENCY, deadline - MIN_CALL_MS);
   const ok = settled.flatMap((r) => (r.status === "fulfilled" ? [r.value] : []));
   const failures = settled.flatMap((r) => (r.status === "rejected" ? [String(r.reason).slice(0, 200)] : []));
   if (failures.length) console.error(`[review] ${failures.length}/${tasks.length} generation call(s) failed:`, failures.join(" | "));
@@ -250,6 +273,14 @@ export async function generateReview(userId: string): Promise<PortfolioReviewV2>
     const first = settled.find((r) => r.status === "rejected") as PromiseRejectedResult | undefined;
     throw new Error(classifyAiError(first?.reason)?.message ?? "The review couldn't be generated right now. Try again in a moment.");
   }
+
+  // Which slices failed, so the dashboard can say so instead of passing silence off as a verdict.
+  // tasks[0] is the portfolio half; tasks[1 + i] is position batch i.
+  const failedSections: string[] = [];
+  if (settled[0].status === "rejected") failedSections.push("Portfolio summary");
+  batches.forEach((b, i) => {
+    if (settled[i + 1].status === "rejected") failedSections.push(`Positions: ${b.map((x) => x.t).join(", ")}`);
+  });
 
   const portfolioRes = ok.find((r) => r.kind === "portfolio")?.res as StructuredResult<PortfolioJudgment> | undefined;
   const positionResults = ok.filter((r) => r.kind === "positions").map((r) => r.res as StructuredResult<PositionsJudgment>);
@@ -263,7 +294,16 @@ export async function generateReview(userId: string): Promise<PortfolioReviewV2>
     }),
     { inputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, outputTokens: 0 },
   );
-  await logUsage("portfolio_review", ok[0].res.model, usage, { userId });
+  if (opts.usageLogId) {
+    // Fill in the placeholder the route inserted when the gate allowed this request (it already
+    // counts toward today's quota, so parallel requests can't slip past the gate).
+    const usd = usdFor(ok[0].res.model, usage);
+    await db()
+      .usageLog.update({ where: { id: opts.usageLogId }, data: { model: ok[0].res.model, ...usage, usd } })
+      .catch((err) => console.error("[review] couldn't update usage row:", err));
+  } else {
+    await logUsage("portfolio_review", ok[0].res.model, usage, { userId });
+  }
 
   const pos = {
     cards: positionResults.flatMap((r) => r.value.cards),
@@ -280,10 +320,21 @@ export async function generateReview(userId: string): Promise<PortfolioReviewV2>
     cards: pos.cards,
   };
 
-  // Merge judgment into the code-computed cards by ticker.
+  // Merge judgment into the code-computed cards by ticker, tolerating spelling drift (BRK.B vs
+  // BRK-B), and snap the model's tickers to ours so zones / calls / per-stock lines line up too.
+  const canon = new Map(cards.map((c) => [normTicker(c.numbers.symbol), c.numbers.symbol]));
+  const snap = (t: string) => canon.get(normTicker(t)) ?? t;
   for (const card of cards) {
-    card.j = value.cards.find((c) => c.t.toUpperCase() === card.numbers.symbol) ?? null;
+    card.j = value.cards.find((c) => normTicker(c.t) === normTicker(card.numbers.symbol)) ?? null;
+    if (card.j) card.j = { ...card.j, t: card.numbers.symbol };
   }
+  value.zones = value.zones.map((z) => ({ ...z, t: snap(z.t) }));
+  value.actions = value.actions.map((a) => ({ ...a, position: snap(a.position) }));
+  value.review = { ...value.review, perStock: value.review.perStock.map((x) => ({ ...x, t: snap(x.t) })) };
+  const missing = cards.filter((c) => !c.j).map((c) => c.numbers.symbol);
+  const alreadyFailed = new Set(failedSections.flatMap((f) => (f.startsWith("Positions: ") ? f.slice(11).split(", ") : [])));
+  const omitted = missing.filter((t) => !alreadyFailed.has(t));
+  if (omitted.length) failedSections.push(`Positions: ${omitted.join(", ")}`);
 
   const alltime: AllTime | null = activity
     ? {
@@ -293,7 +344,7 @@ export async function generateReview(userId: string): Promise<PortfolioReviewV2>
         fees: activity.fees,
         accountValue: metrics.totalValueUsd,
         closed: activity.closed.map((c) => ({ t: c.t, pl: c.pl, note: null })),
-        insights: [],
+        insights: activity.warnings ?? [],
         footnote: activity.endDate ? `From an activity export ending ${activity.endDate}. Deposits after that date aren't counted. Observations, not tax advice — confirm against your 1099-B.` : "From an uploaded activity export. Observations, not tax advice.",
       }
     : null;
@@ -321,7 +372,13 @@ export async function generateReview(userId: string): Promise<PortfolioReviewV2>
     unverified: value.unverified,
     generatedAt: new Date().toISOString(),
     model,
+    ...(failedSections.length ? { failedSections } : {}),
   };
-  await db().portfolio.update({ where: { id: row.id }, data: { review: JSON.stringify(review), reviewAt: new Date() } });
-  return review;
+  // Compare-and-set: only save if the inputs are still what this review was built from. If the
+  // user edited holdings/cash meanwhile, saving would attach an old review to a new portfolio.
+  const saved = await db().portfolio.updateMany({
+    where: { id: row.id, holdings: row.holdings, cashUsd: row.cashUsd, newCashUsd: row.newCashUsd },
+    data: { review: JSON.stringify(review), reviewAt: new Date() },
+  });
+  return { review, stale: saved.count === 0 };
 }

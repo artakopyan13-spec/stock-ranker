@@ -2,7 +2,10 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { FAQS } from "@/lib/glossary";
 
-export const metadata: Metadata = { title: "Learn — how to read stocks" };
+export const metadata: Metadata = {
+  title: "Learn — how to read stocks",
+  description: "A plain-English guide to the metrics behind every analysis — free cash flow, margins, P/E and more, with good and bad ranges.",
+};
 
 export default function LearnPage() {
   return (

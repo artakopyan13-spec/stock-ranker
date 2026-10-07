@@ -5,7 +5,7 @@ import { env } from "@/lib/env";
 import { anthropic, logUsage, usageFromMessage } from "@/lib/ai/client";
 import { gateFreshAnalysis, type DenyReason } from "@/lib/quota/gate";
 import { effectiveLimits } from "@/lib/quota/settings";
-import { spendToday } from "@/lib/quota/spend";
+import { spendToday, SYSTEM_SPEND_SHARE } from "@/lib/quota/spend";
 import { FreshAnalysisDeniedError } from "@/lib/analysis/service";
 import { EarningsReportOutput } from "@/lib/earnings/schema";
 import { CANDIDATE_ROWS, isCurrent, metaOf, pickBest, type ReportMeta } from "@/lib/reports/freshness";
@@ -43,7 +43,7 @@ async function generate(symbol: string, userId: string | null, web = false): Pro
 
 Return a structured report:
 - company, the quarter label (e.g. "Q2 FY2026"), the report date (YYYY-MM-DD), and timing ("After market close" / "Before open" / "").
-- headlineVerdict: overall "beat", "mixed", or "miss" vs. Wall Street expectations.
+- headlineVerdict: overall "beat", "mixed", or "miss" vs. Wall Street expectations — or "unknown" when you can't confirm the reported figures (never guess a verdict).
 - priceReactionPct: how the stock moved right after the report (%), or null if unknown.
 - metrics: 4-5 KPI tiles comparing REPORTED vs. analyst CONSENSUS — Revenue, EPS, Gross margin, EBITDA (if available), and forward Guidance (next-quarter or full-year revenue). For each: the reported value (formatted, e.g. "$26.0B", "$0.61", "78.4%"), the consensus ("—" if none), the % surprise (deltaPct, positive = above), and a verdict ("beat"/"miss"/"inline" for results, "above"/"below"/"inline" for guidance, "na" if unknown).
 - revenueTrend: the last ~5 quarters of revenue in MILLIONS USD, each with a short period label (e.g. "Q1 FY25").
@@ -67,7 +67,8 @@ Hard rules:
     messages: [{ role: "user", content: prompt }],
   }, web ? {} : { timeout: 48_000, maxRetries: 0 }); // on-demand runs inside a 60s function
 
-  const searches = resp.content.filter((b): b is Anthropic.ServerToolUseBlock => b.type === "server_tool_use").length;
+  // Billed searches come from the usage counter; server_tool_use blocks can include non-search tool steps.
+  const searches = resp.usage.server_tool_use?.web_search_requests ?? resp.content.filter((b): b is Anthropic.ServerToolUseBlock => b.type === "server_tool_use").length;
   await logUsage("earnings", e.NEWS_SEARCH_MODEL, usageFromMessage(resp.usage), { symbol, userId, webSearches: searches });
 
   if (resp.stop_reason === "refusal" || !resp.parsed_output || resp.parsed_output.metrics.length === 0) return null;
@@ -141,7 +142,7 @@ export async function refreshEarningsSystem(symbol: string, web = false): Promis
   if (!e.ANTHROPIC_API_KEY || e.DEMO_MODE) return { refreshed: false, reason: "no_key" };
   const limits = await effectiveLimits();
   if (limits.killSwitchManual) return { refreshed: false, reason: "kill_switch" };
-  if ((await spendToday()) >= limits.spendCeilingUsd) return { refreshed: false, reason: "spend_ceiling" };
+  if ((await spendToday()) >= limits.spendCeilingUsd * SYSTEM_SPEND_SHARE) return { refreshed: false, reason: "spend_ceiling" };
   const data = await generate(symbol.toUpperCase(), null, web);
   return { refreshed: Boolean(data) };
 }

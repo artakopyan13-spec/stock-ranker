@@ -9,14 +9,13 @@ export function parseLine(raw: string): Holding | null {
   const line = raw.trim();
   if (!line || /^[#/]/.test(line)) return null;
 
-  // Symbol = first alpha token that is a plausible ticker and not a header word.
-  const tokens = line.split(/[\s,;|]+/).filter(Boolean);
-  const symTok = tokens.find((t) => {
-    const up = t.replace(/^\$/, "").toUpperCase();
-    return /^[A-Za-z][A-Za-z.\-]{0,6}$/.test(t) && !STOPWORDS.has(up) && isValidSymbol(up);
-  });
+  // Symbol = a plausible ticker token (a leading "$" cashtag is fine) that isn't a header word.
+  // Prefer an ALL-CAPS token so "Apple AAPL 10" picks AAPL, not "APPLE".
+  const tokens = line.split(/[\s,;|]+/).filter(Boolean).map((t) => t.replace(/^\$/, ""));
+  const candidates = tokens.filter((t) => /^[A-Za-z][A-Za-z.\-]{0,6}$/.test(t) && !STOPWORDS.has(t.toUpperCase()) && isValidSymbol(t.toUpperCase()));
+  const symTok = candidates.find((t) => t === t.toUpperCase()) ?? candidates[0];
   if (!symTok) return null;
-  const symbol = symTok.replace(/^\$/, "").toUpperCase();
+  const symbol = symTok.toUpperCase();
 
   // avgCost: number after "@" (optionally $-prefixed).
   const atMatch = line.match(/@\s*\$?([\d,]+(?:\.\d+)?)/);
@@ -42,13 +41,21 @@ export function parseLine(raw: string): Holding | null {
   return { symbol, shares, avgCost: cost, valueUsd: shares === null ? dollarAmt : null };
 }
 
-/** Parse pasted text (one holding per line, or comma-separated on a single line). */
-export function parseHoldings(text: string): Holding[] {
+/** Parse pasted text (one holding per line, or comma-separated on a single line), counting the
+ *  non-blank, non-comment lines that couldn't be read so the UI can say "skipped N". */
+export function parseHoldingsWithStats(text: string): { holdings: Holding[]; skipped: number } {
   const lines = text.includes("\n") ? text.split(/\r?\n/) : text.split(/,(?=\s*\$?[A-Za-z])/);
   const bySymbol = new Map<string, Holding>();
+  let skipped = 0;
   for (const line of lines) {
     const h = parseLine(line);
-    if (h && !bySymbol.has(h.symbol)) bySymbol.set(h.symbol, h);
+    if (h) {
+      if (!bySymbol.has(h.symbol)) bySymbol.set(h.symbol, h);
+    } else if (line.trim() && !/^[#/]/.test(line.trim())) skipped++;
   }
-  return [...bySymbol.values()].slice(0, 60);
+  return { holdings: [...bySymbol.values()].slice(0, 60), skipped };
+}
+
+export function parseHoldings(text: string): Holding[] {
+  return parseHoldingsWithStats(text).holdings;
 }

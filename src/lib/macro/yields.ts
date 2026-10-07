@@ -7,6 +7,7 @@ export interface Quote {
   symbol: string;
   value: number | null; // yield % for rates, index level for indices
   changePct: number | null; // day change %
+  change: number | null; // day change in the quote's own units (percentage points for yields)
 }
 
 const TREASURIES: [string, string][] = [
@@ -29,9 +30,9 @@ function num(v: unknown): number | null {
 async function one([symbol, label]: [string, string]): Promise<Quote> {
   try {
     const q = (await yf.quote(symbol)) as unknown as Record<string, unknown>;
-    return { label, symbol, value: num(q.regularMarketPrice), changePct: num(q.regularMarketChangePercent) };
+    return { label, symbol, value: num(q.regularMarketPrice), changePct: num(q.regularMarketChangePercent), change: num(q.regularMarketChange) };
   } catch {
-    return { label, symbol, value: null, changePct: null };
+    return { label, symbol, value: null, changePct: null, change: null };
   }
 }
 

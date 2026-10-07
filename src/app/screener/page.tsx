@@ -7,7 +7,10 @@ import { Screener } from "@/components/Screener";
 import { Heatmap } from "@/components/Heatmap";
 import type { ScreenFilters } from "@/lib/screener";
 
-export const metadata: Metadata = { title: "Screener" };
+export const metadata: Metadata = {
+  title: "Screener",
+  description: "Filter every AI-analyzed stock by FCF margin, growth, valuation and rating — or see the market as a heatmap.",
+};
 export const dynamic = "force-dynamic";
 
 function filtersFromParams(sp: Record<string, string | string[] | undefined>): ScreenFilters {
@@ -31,6 +34,7 @@ function filtersFromParams(sp: Record<string, string | string[] | undefined>): S
     maxForwardPE: numP("maxForwardPE"),
     maxPriceToFcf: numP("maxPriceToFcf"),
     minRating: numP("minRating"),
+    maxRating: numP("maxRating"),
     actions: listP("actions"),
     fcfVerdicts: listP("fcfVerdicts"),
   };

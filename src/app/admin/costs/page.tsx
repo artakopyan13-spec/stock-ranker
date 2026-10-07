@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { env } from "@/lib/env";
 import { estimatePerAnalysisUsd } from "@/lib/ai/pricing";
 import { analysesToday } from "@/lib/ai/client";
+import { startOfUtcDay } from "@/lib/quota/spend";
 
 export const dynamic = "force-dynamic";
 
@@ -11,11 +12,38 @@ function dayKey(d: Date): string {
   return d.toISOString().slice(0, 10);
 }
 
+const DAY_MS = 86_400_000;
+
+/** Per-UTC-day totals for the last 30 days, aggregated in the DB (one indexed aggregate per day). */
+async function dailyTotals(today: Date) {
+  const prisma = db();
+  return Promise.all(
+    Array.from({ length: 30 }, async (_, i) => {
+      const start = new Date(today.getTime() - i * DAY_MS);
+      const a = await prisma.usageLog.aggregate({
+        where: { createdAt: { gte: start, lt: new Date(start.getTime() + DAY_MS) } },
+        _count: true,
+        _sum: { usd: true, inputTokens: true, cacheReadTokens: true, cacheWriteTokens: true, outputTokens: true },
+      });
+      const s = a._sum;
+      return {
+        day: dayKey(start),
+        calls: a._count,
+        usd: s.usd ?? 0,
+        input: (s.inputTokens ?? 0) + (s.cacheReadTokens ?? 0) + (s.cacheWriteTokens ?? 0),
+        output: s.outputTokens ?? 0,
+      };
+    }),
+  );
+}
+
 async function loadCosts() {
   const prisma = db();
-  const since = new Date(Date.now() - 30 * 86_400_000);
+  const today = startOfUtcDay();
+  const since = new Date(today.getTime() - 29 * DAY_MS);
   return Promise.all([
-    prisma.usageLog.findMany({ where: { createdAt: { gte: since } }, orderBy: { createdAt: "desc" } }),
+    dailyTotals(today),
+    prisma.usageLog.groupBy({ by: ["kind"], _count: true, _sum: { usd: true }, where: { createdAt: { gte: since } } }),
     prisma.refreshRun.findMany({ orderBy: { startedAt: "desc" }, take: 14 }),
     analysesToday(),
     prisma.watchlistItem.groupBy({ by: ["symbol"] }),
@@ -29,28 +57,12 @@ export default async function CostsPage() {
   if (!admin) redirect("/signin");
   if (admin.role !== "admin") notFound();
   const e = env();
-  const [logs, runs, today, watched, topTickers, topUsers] = await loadCosts();
+  const [days, kindRows, runs, today, watched, topTickers, topUsers] = await loadCosts();
   const userEmails = new Map((await db().user.findMany({ where: { id: { in: topUsers.map((u) => u.userId!).filter(Boolean) } }, select: { id: true, email: true } })).map((u) => [u.id, u.email]));
-  const byDay = new Map<string, { usd: number; calls: number; input: number; output: number }>();
-  for (const l of logs) {
-    const k = dayKey(l.createdAt);
-    const cur = byDay.get(k) ?? { usd: 0, calls: 0, input: 0, output: 0 };
-    cur.usd += l.usd;
-    cur.calls += 1;
-    cur.input += l.inputTokens + l.cacheReadTokens + l.cacheWriteTokens;
-    cur.output += l.outputTokens;
-    byDay.set(k, cur);
-  }
-  const total30 = logs.reduce((s, l) => s + l.usd, 0);
+  const byDay = new Map(days.filter((d) => d.calls > 0).map((d) => [d.day, d]));
+  const total30 = days.reduce((s, d) => s + d.usd, 0);
   const nightly = Math.min(watched.length, e.MAX_CRON_TICKERS);
-  const byKind = new Map<string, { usd: number; calls: number }>();
-  for (const l of logs) {
-    const cur = byKind.get(l.kind) ?? { usd: 0, calls: 0 };
-    cur.usd += l.usd;
-    cur.calls += 1;
-    byKind.set(l.kind, cur);
-  }
-  const kinds = [...byKind.entries()].sort((a, b) => b[1].usd - a[1].usd);
+  const kinds = kindRows.map((k) => [k.kind, { usd: k._sum.usd ?? 0, calls: k._count }] as const).sort((a, b) => b[1].usd - a[1].usd);
 
   return (
     <div className="space-y-6">

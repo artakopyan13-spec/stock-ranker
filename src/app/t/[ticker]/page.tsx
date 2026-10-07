@@ -10,6 +10,8 @@ import { AddToWatchlist } from "@/components/AddToWatchlist";
 import { ExcelExportButton } from "@/components/ExcelExportButton";
 import { StockKpiStrip } from "@/components/StockKpiStrip";
 import { getCachedDeep } from "@/lib/deep/run";
+import { getStockData } from "@/lib/data";
+import { SymbolNotFoundError } from "@/lib/data/types";
 import { shareUrlFor } from "@/lib/share";
 
 export const dynamic = "force-dynamic";
@@ -19,23 +21,30 @@ export async function generateMetadata({ params }: PageProps<"/t/[ticker]">): Pr
   return { title: `${ticker.toUpperCase()} analysis` };
 }
 
-export default async function TickerPage({ params, searchParams }: PageProps<"/t/[ticker]">) {
+export default async function TickerPage({ params }: PageProps<"/t/[ticker]">) {
   const { ticker } = await params;
-  const sp = await searchParams;
   const symbol = ticker.toUpperCase();
   if (!/^[A-Z0-9.\-^=]{1,12}$/.test(symbol)) notFound();
   const e = env();
   const [stored, user, cachedDeep] = await Promise.all([getLatestAnalysis(symbol), currentUser(), getCachedDeep(symbol).catch(() => null)]);
   if (e.DEMO_MODE && !stored) notFound();
   const tickerRow = await db().ticker.findUnique({ where: { symbol } });
+  // Never seen this symbol: confirm it exists so a typo gets a real 404, not a 200 "not found" page.
+  // The snapshot this caches is reused by the analysis run that follows, so it isn't wasted.
+  if (!stored && !tickerRow) {
+    try {
+      await getStockData(symbol);
+    } catch (err) {
+      if (err instanceof SymbolNotFoundError) notFound();
+      // Other provider failures: let the analysis view surface them.
+    }
+  }
   const shareUrl = tickerRow ? shareUrlFor("", tickerRow.shareToken) : null;
-  const fresh = stored ? isFresh(stored) : false;
-  const autoStart = !e.DEMO_MODE && (!stored || !fresh || sp.refresh === "1");
+  // Only auto-start a (paid) run when there is no analysis at all. A stale one is shown as-is with
+  // a Refresh button — merely visiting must never spend a user's credit or anonymous free try.
+  const autoStart = !e.DEMO_MODE && !stored;
   const analysis = (
-    <div className="space-y-4">
-      {stored && !fresh && !e.DEMO_MODE && <div className="text-xs text-muted">Cached analysis is older than {e.ANALYSIS_TTL_HOURS}h — refreshing automatically.</div>}
-      <AnalysisStream ticker={symbol} initialAnalysis={stored && (fresh || e.DEMO_MODE) ? stored.analysis : null} shareUrl={shareUrl} autoStart={autoStart} signedIn={!!user} />
-    </div>
+    <AnalysisStream ticker={symbol} initialAnalysis={stored?.analysis ?? null} stale={!!stored && !e.DEMO_MODE && !isFresh(stored)} shareUrl={shareUrl} autoStart={autoStart} signedIn={!!user} />
   );
   return (
     <div className="space-y-3">
@@ -47,7 +56,7 @@ export default async function TickerPage({ params, searchParams }: PageProps<"/t
         </div>
       </div>
       {stored && <StockKpiStrip analysis={stored.analysis} deepOverall={cachedDeep?.scorecard.overall ?? null} />}
-      <CompanyTabs symbol={symbol} analysis={analysis} signedIn={!!user} initialTab={typeof sp.tab === "string" ? sp.tab : undefined} />
+      <CompanyTabs symbol={symbol} analysis={analysis} signedIn={!!user} />
     </div>
   );
 }

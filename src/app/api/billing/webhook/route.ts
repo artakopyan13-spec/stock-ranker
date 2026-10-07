@@ -1,13 +1,13 @@
 import { env } from "@/lib/env";
 import { verifyWebhook } from "@/lib/billing/stripe";
-import { applyPlan, downgradeCustomer } from "@/lib/billing/apply";
+import { handleStripeEvent, type StripeEventPayload } from "@/lib/billing/webhook";
 
 export const dynamic = "force-dynamic";
 
 /**
- * Stripe webhook. Durable plan sync: activates on checkout/payment, downgrades on cancellation.
- * No-ops safely when STRIPE_WEBHOOK_SECRET isn't set. Always returns 200 for handled events so
- * Stripe doesn't retry forever on our own logic errors.
+ * Stripe webhook — the durable plan sync (activation, renewal, plan change, failed payment,
+ * cancellation). No-ops safely when STRIPE_WEBHOOK_SECRET isn't set. Returns 500 when applying an
+ * event fails so Stripe retries it; handling is idempotent per event id, so retries are safe.
  */
 export async function POST(req: Request): Promise<Response> {
   const secret = env().STRIPE_WEBHOOK_SECRET;
@@ -17,37 +17,18 @@ export async function POST(req: Request): Promise<Response> {
     return new Response("bad signature", { status: 400 });
   }
 
-  let event: { type?: string; data?: { object?: Record<string, unknown> } };
+  let event: StripeEventPayload;
   try {
     event = JSON.parse(payload);
   } catch {
     return new Response("bad payload", { status: 400 });
   }
-  const obj = (event.data?.object ?? {}) as Record<string, unknown>;
 
   try {
-    switch (event.type) {
-      case "checkout.session.completed": {
-        const meta = (obj.metadata as Record<string, string> | undefined) ?? {};
-        const userId = (obj.client_reference_id as string) ?? meta.userId;
-        if (userId && meta.plan) await applyPlan(userId, meta.plan, { customerId: (obj.customer as string) ?? null });
-        break;
-      }
-      case "customer.subscription.deleted": {
-        const customer = obj.customer as string | undefined;
-        if (customer) await downgradeCustomer(customer);
-        break;
-      }
-      case "invoice.paid": {
-        // Renewal: extend the current period for whoever this customer is.
-        const meta = (obj.subscription_details as { metadata?: Record<string, string> } | undefined)?.metadata ?? {};
-        const customer = obj.customer as string | undefined;
-        if (customer && meta.userId && meta.plan) await applyPlan(meta.userId, meta.plan, { customerId: customer });
-        break;
-      }
-    }
-  } catch {
-    /* swallow — a logic error shouldn't trigger infinite Stripe retries */
+    await handleStripeEvent(event);
+  } catch (err) {
+    console.error(`[billing] webhook ${event.type ?? "?"} ${event.id ?? "?"} failed:`, err);
+    return new Response("error", { status: 500 });
   }
   return new Response("ok", { status: 200 });
 }

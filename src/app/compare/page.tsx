@@ -1,7 +1,10 @@
 import type { Metadata } from "next";
 import { Compare } from "@/components/Compare";
 
-export const metadata: Metadata = { title: "Compare" };
+export const metadata: Metadata = {
+  title: "Compare",
+  description: "Compare up to five stocks side by side — quality grade, margins, free cash flow, valuation and growth.",
+};
 export const dynamic = "force-dynamic";
 
 export default async function ComparePage({ searchParams }: PageProps<"/compare">) {

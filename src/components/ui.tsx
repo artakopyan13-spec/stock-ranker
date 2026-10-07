@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import type { SourcedNumber } from "@/lib/data/types";
 import { FCF_EMOJI, type Action, type FcfVerdict } from "@/lib/analysis/schema";
 import { ago, dateLabel, UNVERIFIED } from "@/lib/format";
@@ -151,4 +151,48 @@ export function Estimate() {
       estimate · model judgment
     </span>
   );
+}
+
+/** Provenance of a cached AI report (deep / earnings), as returned in the API's `meta`. */
+export interface ReportMetaView {
+  mode: "web" | "knowledge";
+  builtAt: string;
+  outdated: boolean;
+  expired: boolean;
+}
+export interface ReportNoticeView {
+  reason: string;
+  message: string;
+}
+
+/** "Web-verified · built Oct 7, 2026" vs "From AI knowledge (may be out of date) · built …". */
+export function reportProvenance(meta: ReportMetaView): string {
+  const built = dateLabel(meta.builtAt);
+  return meta.mode === "web" ? `Web-verified · built ${built}` : `From AI knowledge (may be out of date) · built ${built}`;
+}
+
+/** A report notice (quota, refresh failed, already verified, errors) with the action that resolves it. */
+export function ReportNotice({ notice, signedIn, className = "" }: { notice: ReportNoticeView; signedIn: boolean; className?: string }) {
+  const upgrade = notice.reason === "user_quota";
+  // Anonymous users hitting any gate (login, rate limit, caps) get a sign-in route; not for plain errors.
+  const signIn = notice.reason === "login_required" || (!signedIn && !upgrade && !["already_verified", "refresh_failed", "error"].includes(notice.reason));
+  return (
+    <span className={`inline-flex items-center gap-2 flex-wrap ${className}`}>
+      <span className="text-gold">{notice.message}</span>
+      {upgrade && <a href="/pricing" className="btn btn-primary no-underline text-xs px-2 py-1">Upgrade →</a>}
+      {signIn && <a href="/signin" className="btn btn-primary no-underline text-xs px-2 py-1">Sign in</a>}
+    </span>
+  );
+}
+
+/** Appears under a progress bar once a build has run past the usual time. Remount (key) to reset. */
+export function SlowHint({ active, afterSec = 45 }: { active: boolean; afterSec?: number }) {
+  const [slow, setSlow] = useState(false);
+  useEffect(() => {
+    if (!active) return;
+    const id = setTimeout(() => setSlow(true), afterSec * 1000);
+    return () => clearTimeout(id);
+  }, [active, afterSec]);
+  if (!active || !slow) return null;
+  return <div className="text-[0.68rem] text-muted mt-1">Taking longer than usual…</div>;
 }

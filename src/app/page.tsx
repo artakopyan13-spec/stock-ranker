@@ -10,16 +10,30 @@ import { CreateWatchlist } from "@/components/WatchlistTools";
 import { ActionChip } from "@/components/ui";
 import { FCF_EMOJI } from "@/lib/analysis/schema";
 import { ago } from "@/lib/format";
-import { Landing } from "@/components/Landing";
+import { Landing, type CoverageItem } from "@/components/Landing";
+import { loadUniverse } from "@/lib/universe";
 
 export const dynamic = "force-dynamic";
+
+/** Real cached ratings for the landing's scrolling strip — the most-searched analyzed tickers. */
+async function landingCoverage(): Promise<CoverageItem[]> {
+  try {
+    const rows = await loadUniverse();
+    return rows
+      .sort((a, b) => b.searchCount - a.searchCount)
+      .slice(0, 12)
+      .map((r) => [r.symbol, `${r.rating}/10`, FCF_EMOJI[r.fcfVerdict as keyof typeof FCF_EMOJI] ?? ""]);
+  } catch {
+    return []; // falls back to the labelled illustrative strip
+  }
+}
 
 export default async function Home() {
   const e = env();
   const prisma = db();
   const user = await currentUser();
   // Signed-out visitors get the marketing landing page (its own header/footer).
-  if (!user && !e.DEMO_MODE) return <Landing />;
+  if (!user && !e.DEMO_MODE) return <Landing coverage={await landingCoverage()} />;
   // First-time users complete the welcome questions before entering the app.
   if (user && !e.DEMO_MODE) {
     const onb = await prisma.user.findUnique({ where: { id: user.id }, select: { onboardedAt: true } });

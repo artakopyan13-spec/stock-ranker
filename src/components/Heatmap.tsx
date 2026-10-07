@@ -1,53 +1,59 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { Quote } from "@/lib/data/quotes";
 import { squarify } from "@/lib/treemap";
+import { fetchJson } from "@/lib/fetch-json";
 
 const DEFAULT = "NQ=F,ES=F,NVDA,AAPL,MSFT,GOOGL,AMZN,META,TSLA,AVGO,AMD,NFLX,JPM,V,WMT,XOM,UNH,LLY,COST,ORCL";
 const KEY = "heatmap-symbols";
 
+/** Tiles mix toward the page background so the theme's own text color stays readable on them. */
 function colorFor(chg: number | null): string {
   if (chg === null) return "var(--card-2)";
   const c = Math.max(-4, Math.min(4, chg)) / 4; // clamp to +-4%
-  if (c >= 0) return `color-mix(in srgb, var(--green) ${Math.round(20 + c * 70)}%, #0e1116)`;
-  return `color-mix(in srgb, var(--red) ${Math.round(20 + -c * 70)}%, #0e1116)`;
+  if (c >= 0) return `color-mix(in srgb, var(--green) ${Math.round(20 + c * 70)}%, var(--bg))`;
+  return `color-mix(in srgb, var(--red) ${Math.round(20 + -c * 70)}%, var(--bg))`;
+}
+
+function savedSymbols(): string {
+  try {
+    return localStorage.getItem(KEY) || DEFAULT;
+  } catch {
+    return DEFAULT; // server render / storage blocked
+  }
+}
+
+/** The quotes (or error) for one exact symbols string + reload count, so a stale response can't show. */
+interface Loaded {
+  key: string;
+  quotes: Quote[] | null;
+  error: string | null;
 }
 
 export function Heatmap() {
   const router = useRouter();
-  const [symbols, setSymbols] = useState<string>(DEFAULT);
+  // Read saved tickers up front: a separate "load saved" effect raced the default fetch.
+  const [symbols, setSymbols] = useState<string>(savedSymbols);
   const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(DEFAULT);
-  const [quotes, setQuotes] = useState<Quote[] | null>(null);
+  const [draft, setDraft] = useState(symbols);
+  const [reload, setReload] = useState(0);
+  const [loaded, setLoaded] = useState<Loaded | null>(null);
+  const key = `${symbols}#${reload}`;
 
   useEffect(() => {
-    try {
-      const saved = localStorage.getItem(KEY);
-      if (saved) {
-        // eslint-disable-next-line react-hooks/set-state-in-effect
-        setSymbols(saved);
-        setDraft(saved);
-      }
-    } catch {}
-  }, []);
+    const ctrl = new AbortController();
+    void fetchJson<{ quotes?: Quote[] }>(`/api/quotes?symbols=${encodeURIComponent(symbols)}`, { signal: ctrl.signal }).then((res) => {
+      if (ctrl.signal.aborted) return;
+      const quotes = res.ok ? res.data?.quotes : undefined;
+      setLoaded(quotes ? { key, quotes, error: null } : { key, quotes: null, error: res.error ?? "Couldn't load quotes. Try again." });
+    });
+    return () => ctrl.abort();
+  }, [symbols, key]);
 
-  const fetchQuotes = useCallback(async (syms: string) => {
-    setQuotes(null);
-    try {
-      const res = await fetch(`/api/quotes?symbols=${encodeURIComponent(syms)}`);
-      const d = (await res.json()) as { quotes: Quote[] };
-      setQuotes(d.quotes);
-    } catch {
-      setQuotes([]);
-    }
-  }, []);
-
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    void fetchQuotes(symbols);
-  }, [symbols, fetchQuotes]);
+  const current = loaded?.key === key ? loaded : null;
+  const quotes = current?.quotes ?? null;
 
   const save = () => {
     const cleaned = draft.split(/[\s,;]+/).filter(Boolean).join(",");
@@ -86,15 +92,23 @@ export function Heatmap() {
       </div>
       {editing && (
         <div className="card p-3 space-y-2">
-          <textarea value={draft} onChange={(e) => setDraft(e.target.value)} rows={2} className="w-full text-sm" />
+          <label htmlFor="heatmap-symbols" className="sr-only">Tickers to show</label>
+          <textarea id="heatmap-symbols" value={draft} onChange={(e) => setDraft(e.target.value)} rows={2} className="w-full text-sm" />
           <div className="flex gap-2 items-center">
             <button className="btn btn-primary py-1 px-3 text-xs" onClick={save}>Save</button>
             <span className="text-xs text-dim">Comma or space separated. Futures: NQ=F, ES=F. Up to 60 tickers.</span>
           </div>
         </div>
       )}
-      {quotes === null ? (
+      {current?.error ? (
+        <div role="alert" className="card p-6 text-sm text-center space-y-2">
+          <div className="text-red">{current.error}</div>
+          <button type="button" className="btn py-1 px-3 text-xs" onClick={() => setReload((n) => n + 1)}>Retry</button>
+        </div>
+      ) : quotes === null ? (
         <div className="card skeleton" style={{ paddingTop: "60%" }} />
+      ) : quotes.length === 0 ? (
+        <div className="card p-6 text-sm text-center text-muted">No valid tickers to show — edit the list above.</div>
       ) : (
         <div className="relative w-full card overflow-hidden" style={{ paddingTop: "60%" }}>
           {rects.map((r) => {

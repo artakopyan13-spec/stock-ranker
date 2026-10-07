@@ -2,14 +2,20 @@ import { z } from "zod";
 import { currentUser } from "@/auth";
 import { env } from "@/lib/env";
 import { db } from "@/lib/db";
-import { billingConfigured, isPaidPlan, priceIdFor, type PlanId } from "@/lib/plans";
-import { createCheckoutSession } from "@/lib/billing/stripe";
+import { billingConfigured, effectivePlanId, isPaidPlan, priceIdFor, type PlanId } from "@/lib/plans";
+import { createCheckoutSession, hasActiveSubscription } from "@/lib/billing/stripe";
 
 export const dynamic = "force-dynamic";
 
 const Body = z.object({ plan: z.enum(["investor", "pro", "elite"]) });
 
-/** Start a Stripe Checkout Session for the chosen plan; returns the hosted checkout URL. */
+const ALREADY_SUBSCRIBED = "You already have an active subscription. Use “Manage subscription” to switch plans or cancel.";
+
+/**
+ * Start a Stripe Checkout Session for the chosen plan; returns the hosted checkout URL. Refuses
+ * (409) when the user already pays — a second subscription would double-bill them, and cancelling
+ * either one would drop them to Free. Plan changes go through the Billing Portal instead.
+ */
 export async function POST(req: Request): Promise<Response> {
   const user = await currentUser();
   if (!user) return Response.json({ error: "Sign in to upgrade." }, { status: 401 });
@@ -24,9 +30,19 @@ export async function POST(req: Request): Promise<Response> {
   const priceId = priceIdFor(planId);
   if (!priceId) return Response.json({ error: "That plan isn't available yet." }, { status: 503 });
 
-  const row = await db().user.findUnique({ where: { id: user.id }, select: { email: true, stripeCustomerId: true } });
+  const row = await db().user.findUnique({
+    where: { id: user.id },
+    select: { email: true, stripeCustomerId: true, plan: true, planRenewsAt: true },
+  });
+  if (row && isPaidPlan(effectivePlanId(row))) {
+    return Response.json({ error: ALREADY_SUBSCRIBED, manage: true }, { status: 409 });
+  }
   const base = env().APP_URL.replace(/\/$/, "");
   try {
+    // Our plan column can lag Stripe (webhook delay); ask Stripe directly before opening a second one.
+    if (row?.stripeCustomerId && (await hasActiveSubscription(row.stripeCustomerId))) {
+      return Response.json({ error: ALREADY_SUBSCRIBED, manage: true }, { status: 409 });
+    }
     const url = await createCheckoutSession({
       priceId,
       planId,
@@ -38,6 +54,7 @@ export async function POST(req: Request): Promise<Response> {
     });
     return Response.json({ url });
   } catch (err) {
-    return Response.json({ error: err instanceof Error ? err.message : "Could not start checkout." }, { status: 500 });
+    console.error("[billing] checkout failed:", err);
+    return Response.json({ error: "Could not start checkout. Please try again in a moment." }, { status: 500 });
   }
 }

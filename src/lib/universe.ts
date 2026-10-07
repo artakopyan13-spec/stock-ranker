@@ -64,18 +64,51 @@ function rowFrom(a: Analysis, searchCount: number, shareToken: string | null): U
   };
 }
 
-/** Latest verified analysis of every ticker in the cache, as rows for the screener/leaderboard. */
-export async function loadUniverse(): Promise<UniverseRow[]> {
-  const tickers = await db().ticker.findMany({ select: { symbol: true, searchCount: true, shareToken: true } });
+const UNIVERSE_TTL_MS = 5 * 60_000;
+let cache: { at: number; rows: Promise<UniverseRow[]> } | null = null;
+
+async function queryUniverse(): Promise<UniverseRow[]> {
+  // Newest verified version per symbol, found without loading any payloads; then the payloads of
+  // just those rows. Two portable queries (sqlite + postgres) instead of one findFirst per ticker.
+  const heads = await db().analysis.findMany({
+    where: { verified: true },
+    select: { id: true, symbol: true },
+    orderBy: [{ symbol: "asc" }, { version: "desc" }],
+  });
+  const latestIds: string[] = [];
+  let prev: string | null = null;
+  for (const h of heads) {
+    if (h.symbol !== prev) latestIds.push(h.id);
+    prev = h.symbol;
+  }
+  if (latestIds.length === 0) return [];
+  const latest = await db().analysis.findMany({
+    where: { id: { in: latestIds } },
+    select: { payload: true, ticker: { select: { searchCount: true, shareToken: true } } },
+  });
   const rows: UniverseRow[] = [];
-  for (const t of tickers) {
-    const latest = await db().analysis.findFirst({ where: { symbol: t.symbol, verified: true }, orderBy: { version: "desc" } });
-    if (!latest) continue;
+  for (const a of latest) {
     try {
-      rows.push(rowFrom(Analysis.parse(JSON.parse(latest.payload)), t.searchCount, t.shareToken));
+      rows.push(rowFrom(Analysis.parse(JSON.parse(a.payload)), a.ticker.searchCount, a.ticker.shareToken));
     } catch {
       // skip malformed
     }
   }
-  return rows;
+  return rows.sort((x, y) => x.symbol.localeCompare(y.symbol));
+}
+
+/**
+ * Latest verified analysis of every ticker in the cache, as rows for the screener/leaderboard.
+ * Memoized in-module for a few minutes: it's read on every Screener/Top Rated load and command-bar
+ * call, and a just-analyzed ticker showing up a few minutes later is fine.
+ */
+export async function loadUniverse(): Promise<UniverseRow[]> {
+  if (!cache || Date.now() - cache.at > UNIVERSE_TTL_MS) {
+    const rows = queryUniverse();
+    cache = { at: Date.now(), rows };
+    rows.catch(() => {
+      if (cache?.rows === rows) cache = null; // don't cache a failure
+    });
+  }
+  return (await cache.rows).slice(); // callers sort in place
 }

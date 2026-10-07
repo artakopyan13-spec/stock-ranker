@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useState } from "react";
 import type { EarningsReportOutput } from "@/lib/earnings/schema";
 import { ProgressLine } from "@/components/ProgressLine";
+import { ReportNotice, SlowHint, reportProvenance, type ReportMetaView, type ReportNoticeView } from "@/components/ui";
+import { fetchJson, postJson } from "@/lib/fetch-json";
 
 const VERDICT_TONE: Record<string, string> = {
   beat: "text-green",
@@ -22,22 +24,30 @@ function fmtMoneyM(m: number): string {
   return `$${Math.round(m)}M`;
 }
 
+interface EarningsResponse {
+  data?: EarningsReportOutput;
+  meta?: ReportMetaView;
+  notice?: ReportNoticeView;
+}
+
 export function Earnings({ symbol, signedIn = false }: { symbol: string; signedIn?: boolean }) {
   const [data, setData] = useState<EarningsReportOutput | null>(null);
+  const [meta, setMeta] = useState<ReportMetaView | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
-  const [notice, setNotice] = useState<string | null>(null);
-  const [upgrade, setUpgrade] = useState(false);
+  const [notice, setNotice] = useState<ReportNoticeView | null>(null);
 
   useEffect(() => {
     let live = true;
-    fetch(`/api/earnings/${symbol}`)
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d: { data?: EarningsReportOutput } | null) => {
-        if (live && d?.data) setData(d.data);
-      })
-      .catch(() => undefined)
-      .finally(() => live && setLoading(false));
+    // 404 = none built yet (normal); any other failure just leaves the "Build" prompt.
+    void fetchJson<EarningsResponse>(`/api/earnings/${symbol}`).then((r) => {
+      if (!live) return;
+      if (r.ok && r.data?.data) {
+        setData(r.data.data);
+        setMeta(r.data.meta ?? null);
+      }
+      setLoading(false);
+    });
     return () => {
       live = false;
     };
@@ -48,23 +58,15 @@ export function Earnings({ symbol, signedIn = false }: { symbol: string; signedI
       if (busy) return;
       setBusy(true);
       setNotice(null);
-      setUpgrade(false);
-      try {
-        const res = await fetch(`/api/earnings/${symbol}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ force }) });
-        const body = (await res.json().catch(() => ({}))) as { data?: EarningsReportOutput; notice?: { reason: string; message: string }; error?: string };
-        if (body.notice) {
-          setNotice(body.notice.message);
-          setUpgrade(body.notice.reason === "user_quota");
-        } else if (body.data) {
-          setData(body.data);
-        } else {
-          setNotice(body.error ?? "Couldn't build the earnings report. Try again shortly.");
-        }
-      } catch {
-        setNotice("Something went wrong. Try again.");
-      } finally {
-        setBusy(false);
+      const r = await postJson<EarningsResponse>(`/api/earnings/${symbol}`, { force });
+      const body = r.data;
+      if (body?.data) {
+        setData(body.data);
+        setMeta(body.meta ?? null);
       }
+      if (body?.notice) setNotice(body.notice);
+      else if (!r.ok || !body?.data) setNotice({ reason: "error", message: r.error ?? "Couldn't build the earnings report. Try again shortly." });
+      setBusy(false);
     },
     [busy, symbol],
   );
@@ -77,22 +79,25 @@ export function Earnings({ symbol, signedIn = false }: { symbol: string; signedI
         <p className="text-sm text-muted">No earnings report yet for {symbol}.</p>
         <button type="button" onClick={() => void generate(false)} disabled={busy} className="btn btn-primary">{busy ? "Building report…" : "Build earnings report"}</button>
         <ProgressLine key={busy ? "on" : "off"} active={busy} estSeconds={20} label="Building report" />
+        <SlowHint key={busy ? "slow-on" : "slow-off"} active={busy} />
         {notice && (
-          <div className="text-xs flex items-center justify-center gap-2 flex-wrap">
-            <span className="text-gold">{notice}</span>
-            {upgrade && <a href="/pricing" className="btn btn-primary no-underline text-xs px-3 py-1">Upgrade →</a>}
-            {!signedIn && !upgrade && <a href="/signin" className="btn btn-primary no-underline text-xs px-3 py-1">Sign in</a>}
+          <div className="text-xs flex items-center justify-center">
+            <ReportNotice notice={notice} signedIn={signedIn} className="justify-center" />
           </div>
         )}
       </div>
     );
   }
 
-  const hv = headlineTone(data.headlineVerdict);
+  // Every metric "na" means the figures weren't found — a confident "Mixed" chip would be invented.
+  const noFigures = data.headlineVerdict === "unknown" || (data.metrics.length > 0 && data.metrics.every((m) => m.verdict === "na"));
+  const hv = noFigures ? { label: "Figures unavailable", cls: "text-muted border-line" } : headlineTone(data.headlineVerdict);
+  const approx = meta?.mode === "knowledge" ? "~" : "";
   const maxRev = Math.max(1, ...data.revenueTrend.map((p) => p.revenue));
 
   return (
     <div className="space-y-4">
+      {meta?.outdated && <div className="card p-3 text-sm border-l-2 border-l-gold text-muted">Built with an older version of this report — Refresh to rebuild.</div>}
       {/* header */}
       <div className="card p-5 flex flex-wrap items-start justify-between gap-4">
         <div>
@@ -108,7 +113,7 @@ export function Earnings({ symbol, signedIn = false }: { symbol: string; signedI
         {data.priceReactionPct !== null && (
           <div className="text-right">
             <div className={`text-xl font-semibold tabular-nums ${data.priceReactionPct >= 0 ? "text-green" : "text-red"}`}>
-              {data.priceReactionPct >= 0 ? "▲" : "▼"} {Math.abs(data.priceReactionPct).toFixed(1)}%
+              {data.priceReactionPct >= 0 ? "▲" : "▼"} {approx}{Math.abs(data.priceReactionPct).toFixed(1)}%
             </div>
             <div className="text-[0.66rem] text-muted">post‑earnings move</div>
           </div>
@@ -123,7 +128,7 @@ export function Earnings({ symbol, signedIn = false }: { symbol: string; signedI
             <div className="text-2xl font-bold tabular-nums mt-1">{m.value}</div>
             <div className="text-[0.66rem] text-muted mt-1">vs {m.consensus} est.</div>
             <div className={`text-xs font-semibold mt-1 ${VERDICT_TONE[m.verdict] ?? "text-muted"}`}>
-              {m.deltaPct !== null ? `${m.deltaPct >= 0 ? "▲ +" : "▼ "}${m.deltaPct.toFixed(1)}% ` : ""}
+              {m.deltaPct !== null ? `${m.deltaPct >= 0 ? "▲ +" : "▼ −"}${Math.abs(m.deltaPct).toFixed(1)}% ` : ""}
               {m.verdict !== "na" ? m.verdict : ""}
             </div>
           </div>
@@ -189,12 +194,17 @@ export function Earnings({ symbol, signedIn = false }: { symbol: string; signedI
       </div>
 
       {/* footer */}
+      {busy && (
+        <div className="text-center">
+          <ProgressLine active estSeconds={20} label="Rebuilding report" />
+          <SlowHint active />
+        </div>
+      )}
       <div className="flex items-center justify-between gap-2 flex-wrap text-xs text-muted">
-        <span>{data.nextReportDate ? `Next report ≈ ${data.nextReportDate} · ` : ""}as of {data.asOf} · built from AI knowledge · verify figures · not advice</span>
-        <span className="flex items-center gap-2">
+        <span>{data.nextReportDate ? `Next report ≈ ${data.nextReportDate} · ` : ""}{meta ? reportProvenance(meta) : "Built by AI"} · verify figures · not advice</span>
+        <span className="flex items-center gap-2 flex-wrap">
           <button type="button" onClick={() => void generate(true)} disabled={busy} className="btn text-xs py-1 px-2">{busy ? "Refreshing…" : "↻ Regenerate"}</button>
-          {notice && <span className="text-gold">{notice}</span>}
-          {upgrade && <a href="/pricing" className="btn btn-primary no-underline text-xs px-2 py-1">Upgrade →</a>}
+          {notice && <ReportNotice notice={notice} signedIn={signedIn} />}
         </span>
       </div>
     </div>

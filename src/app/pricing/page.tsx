@@ -1,17 +1,23 @@
 import Link from "next/link";
 import { currentUser } from "@/auth";
 import { db } from "@/lib/db";
-import { PLANS } from "@/lib/plans";
-import { PlanButton } from "@/components/PlanButton";
+import { PLANS, effectivePlanId, isPaidPlan } from "@/lib/plans";
+import { effectiveLimits } from "@/lib/quota/settings";
+import { ManageSubscriptionButton, PlanButton } from "@/components/PlanButton";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Pricing · Stock Ranker" };
 
 export default async function PricingPage() {
   const user = await currentUser();
-  const row = user ? await db().user.findUnique({ where: { id: user.id }, select: { plan: true } }) : null;
+  const [row, limits] = await Promise.all([
+    user ? db().user.findUnique({ where: { id: user.id }, select: { plan: true, planRenewsAt: true, stripeCustomerId: true } }) : null,
+    effectiveLimits(),
+  ]);
   const isAdmin = user?.role === "admin";
-  const currentPlan = user ? (isAdmin ? "elite" : row?.plan ?? "free") : null;
+  const currentPlan = user ? (isAdmin ? "elite" : row ? effectivePlanId(row) : "free") : null;
+  // Paying customers change plans in the Stripe Billing Portal — a second Checkout would double-bill.
+  const canManage = !isAdmin && isPaidPlan(currentPlan) && Boolean(row?.stripeCustomerId);
 
   return (
     <main className="max-w-6xl mx-auto px-4 py-14">
@@ -23,6 +29,11 @@ export default async function PricingPage() {
           Committee, deeper analysis, and unlimited Wall Street Einstein.
         </p>
         {isAdmin && <p className="mt-3 text-xs text-gold">You&rsquo;re an admin — everything is unlimited for you regardless of plan.</p>}
+        {canManage && (
+          <div className="mt-5 max-w-xs mx-auto">
+            <ManageSubscriptionButton />
+          </div>
+        )}
       </div>
 
       <div className="grid gap-5 mt-12 md:grid-cols-2 lg:grid-cols-4 items-stretch">
@@ -51,7 +62,8 @@ export default async function PricingPage() {
               {plan.priceMonthly > 0 && <p className="text-[0.7rem] text-muted mt-1">Billed monthly · cancel anytime</p>}
 
               <ul className="mt-5 space-y-2 text-sm flex-1">
-                {plan.perks.map((perk) => (
+                {/* The Free quota is admin-editable; perks[0] is its "N fresh AI analyses / day" line. */}
+                {(plan.id === "free" ? [`${limits.freeDailyFresh} fresh AI analyses / day`, ...plan.perks.slice(1)] : plan.perks).map((perk) => (
                   <li key={perk} className="flex gap-2">
                     <span className="text-green shrink-0">✓</span>
                     <span className={perk.endsWith(":") ? "text-muted" : ""}>{perk}</span>
@@ -64,10 +76,14 @@ export default async function PricingPage() {
                   <button type="button" disabled className="w-full btn opacity-60 cursor-default">
                     Your plan
                   </button>
+                ) : plan.id === "free" && canManage ? (
+                  <ManageSubscriptionButton label={`Downgrade to ${plan.name}`} />
                 ) : plan.id === "free" ? (
                   <Link href="/signin" className="w-full btn no-underline block text-center">
                     Get started
                   </Link>
+                ) : canManage ? (
+                  <ManageSubscriptionButton label={`Switch to ${plan.name}`} variant={featured ? "primary" : "ghost"} />
                 ) : (
                   <PlanButton plan={plan.id} label={`Upgrade to ${plan.name}`} variant={featured ? "primary" : "ghost"} />
                 )}

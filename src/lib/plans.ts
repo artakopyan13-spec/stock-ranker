@@ -120,8 +120,27 @@ export function isPaidPlan(id: string | null | undefined): boolean {
   return PAID_PLAN_IDS.includes(id as PlanId);
 }
 
-/** Effective capabilities for a user, with admins always unlimited. */
-export function capsFor(user: { role?: string | null; plan?: string | null }): {
+/** How long a paid plan survives past its recorded period end (renewal webhook lag, dunning retries). */
+export const PLAN_GRACE_MS = 3 * 24 * 60 * 60 * 1000;
+
+/**
+ * The plan actually in force: a paid plan whose period ended more than PLAN_GRACE_MS ago counts as
+ * Free (missed/failed renewal). A null planRenewsAt means "no expiry" (e.g. a manually granted plan).
+ */
+export function effectivePlanId(user: { plan?: string | null; planRenewsAt?: Date | null }, now = new Date()): PlanId {
+  const p = getPlan(user.plan);
+  if (p.id !== "free" && user.planRenewsAt && user.planRenewsAt.getTime() + PLAN_GRACE_MS < now.getTime()) return "free";
+  return p.id;
+}
+
+/**
+ * Effective capabilities for a user, with admins always unlimited. Pass planRenewsAt so lapsed plans
+ * expire, and freeDailyFresh (effectiveLimits().freeDailyFresh) so the admin/env Free quota applies.
+ */
+export function capsFor(
+  user: { role?: string | null; plan?: string | null; planRenewsAt?: Date | null },
+  opts: { freeDailyFresh?: number; now?: Date } = {},
+): {
   planId: PlanId;
   freshPerDay: number;
   chatPerDay: number;
@@ -132,10 +151,11 @@ export function capsFor(user: { role?: string | null; plan?: string | null }): {
   if (user.role === "admin") {
     return { planId: "elite", freshPerDay: Infinity, chatPerDay: Infinity, unlimited: true, committee: true, deepAnalysis: true };
   }
-  const p = getPlan(user.plan);
+  const p = getPlan(effectivePlanId(user, opts.now));
+  const fresh = p.id === "free" && opts.freeDailyFresh !== undefined ? opts.freeDailyFresh : p.freshPerDay;
   return {
     planId: p.id,
-    freshPerDay: p.unlimited ? Infinity : p.freshPerDay,
+    freshPerDay: p.unlimited ? Infinity : fresh,
     chatPerDay: p.unlimited ? Infinity : p.chatPerDay,
     unlimited: p.unlimited,
     committee: p.committee,
@@ -147,6 +167,12 @@ export function capsFor(user: { role?: string | null; plan?: string | null }): {
 export function priceIdFor(id: PlanId): string | undefined {
   const e = env();
   return id === "investor" ? e.STRIPE_PRICE_INVESTOR : id === "pro" ? e.STRIPE_PRICE_PRO : id === "elite" ? e.STRIPE_PRICE_ELITE : undefined;
+}
+
+/** Reverse of priceIdFor: which paid plan a Stripe price id belongs to (null if it isn't ours). */
+export function planForPriceId(priceId: string | null | undefined): PlanId | null {
+  if (!priceId) return null;
+  return PAID_PLAN_IDS.find((id) => priceIdFor(id) === priceId) ?? null;
 }
 
 /** Billing is live only when a secret key and at least one price id are configured. */

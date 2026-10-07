@@ -30,8 +30,13 @@ async function latestRow(symbol: string) {
   return db().committee.findFirst({ where: { symbol }, orderBy: { createdAt: "desc" } });
 }
 
-function parseRow(row: { payload: string }): CommitteeReport {
-  return CommitteeReport.parse(JSON.parse(row.payload));
+/** null for a malformed/older-schema row — treated as "no committee yet" rather than a 500. */
+function parseRow(row: { payload: string }): CommitteeReport | null {
+  try {
+    return CommitteeReport.parse(JSON.parse(row.payload));
+  } catch {
+    return null;
+  }
 }
 
 /** Cached committee if fresh; otherwise gate (heavy paid action), run one structured call, store, log. */
@@ -42,17 +47,18 @@ export async function getOrCreateCommittee(
   const sym = symbol.toUpperCase();
   const e = env();
 
-  const existing = await latestRow(sym);
-  const fresh = existing ? Date.now() - existing.createdAt.getTime() < TTL_MS : false;
+  const row = await latestRow(sym);
+  const existing = row ? parseRow(row) : null;
+  const fresh = row && existing ? Date.now() - row.createdAt.getTime() < TTL_MS : false;
   if (e.DEMO_MODE) {
-    if (existing) return { report: parseRow(existing), cached: true };
+    if (existing) return { report: existing, cached: true };
     throw new FreshAnalysisDeniedError("no_key", "Committee debates are pre-generated in demo mode.");
   }
-  if (existing && fresh && !opts.force) return { report: parseRow(existing), cached: true };
+  if (existing && fresh && !opts.force) return { report: existing, cached: true };
 
   const gate = await gateFreshAnalysis({ userId: opts.userId ?? null, ip: opts.ip ?? "0.0.0.0" });
   if (!gate.allow) {
-    if (existing) return { report: parseRow(existing), cached: true, notice: { reason: gate.reason, message: gate.message } };
+    if (existing) return { report: existing, cached: true, notice: { reason: gate.reason, message: gate.message } };
     throw new FreshAnalysisDeniedError(gate.reason, gate.message);
   }
 

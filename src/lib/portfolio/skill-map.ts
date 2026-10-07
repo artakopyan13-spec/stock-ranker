@@ -47,19 +47,21 @@ export function toSkillData(review: PortfolioReviewV2, holdings: EnrichedHolding
     const h = holdBy.get(sym);
     const price = card.numbers.price ?? h?.price ?? null;
     let owned = false;
+    // No average cost given → avg = price only so the math runs; no_cost hides the fake +$0 P/L.
     if (h && price !== null) {
       if (h.shares !== null && h.shares > 0) {
-        positions.push({ t: sym, name: h.name ?? sym, shares: h.shares, avg: h.avgCost ?? price, price });
+        positions.push({ t: sym, name: h.name ?? sym, shares: h.shares, avg: h.avgCost ?? price, price, no_cost: h.avgCost === null || undefined });
         owned = true;
       } else if (h.valueUsd !== null && h.valueUsd > 0) {
-        positions.push({ t: sym, name: h.name ?? sym, shares: h.valueUsd / price, avg: price, price });
+        positions.push({ t: sym, name: h.name ?? sym, shares: h.valueUsd / price, avg: h.avgCost ?? price, price, no_cost: h.avgCost === null || undefined });
         owned = true;
       }
     }
 
+    // A missing judgment (failed batch, or the model skipped the ticker) must read as missing — never
+    // as a made-up HOLD 5/10 with a ±20% "forecast" the model didn't produce.
     const j = card.j;
-    const p = price ?? 0;
-    const f: [number, number, number] = j && j.fBear !== null && j.fBase !== null && j.fBull !== null ? [j.fBear, j.fBase, j.fBull] : [p * 0.8, p, p * 1.2];
+    const forecast = j && j.fBear !== null && j.fBase !== null && j.fBull !== null ? ([j.fBear, j.fBase, j.fBull] as [number, number, number]) : null;
     const kgroups = card.numbers.kgroups.map((g) => ({ name: g.name, items: g.items.map((it) => (it.flag && it.flag !== "none" ? [it.label, it.value, it.flag] : [it.label, it.value])) }));
     const trends = card.numbers.trends.map((t) => mapTrend(t, false));
     const history = card.numbers.history.map((t) => mapTrend(t, true));
@@ -67,10 +69,11 @@ export function toSkillData(review: PortfolioReviewV2, holdings: EnrichedHolding
     return {
       t: sym,
       name: h?.name ?? sym,
-      tag: j?.tag ?? "HOLD",
-      tone: j?.tone ?? "gold",
-      rate: j?.rate ?? 5,
-      one: j?.one ?? "",
+      tag: j ? j.tag : "NOT GENERATED",
+      tone: j ? j.tone : "purple",
+      rate: j?.rate ?? 0,
+      missing: j ? undefined : true,
+      one: j ? j.one : "The AI judgment for this position wasn't generated — regenerate the review.",
       k: headlineKpis(card),
       kgroups,
       trends,
@@ -82,8 +85,9 @@ export function toSkillData(review: PortfolioReviewV2, holdings: EnrichedHolding
       bear: j?.bear ?? "",
       trip: j?.trip ?? "",
       cat: j?.cat ?? "",
-      why: j?.why ?? "",
-      f,
+      why: j ? j.why : "Not generated — regenerate the review to get a call on this position.",
+      f: forecast ?? [0, 0, 0],
+      no_forecast: forecast ? undefined : true,
       watch: owned ? undefined : true,
       no_trends_reason: trends.length ? undefined : "no quarterly data available from the provider",
     };

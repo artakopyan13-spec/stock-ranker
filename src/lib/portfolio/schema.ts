@@ -1,11 +1,12 @@
 import { z } from "zod";
 
 /** One position. The user gives shares (preferred) or a dollar value; avgCost is optional. */
+const Amount = z.number().finite().nonnegative().max(1e12);
 export const Holding = z.object({
-  symbol: z.string(),
-  shares: z.number().nullable(),
-  avgCost: z.number().nullable(),
-  valueUsd: z.number().nullable(), // used when shares are unknown
+  symbol: z.string().max(12),
+  shares: Amount.nullable(),
+  avgCost: Amount.nullable(),
+  valueUsd: Amount.nullable(), // used when shares are unknown
 });
 export type Holding = z.infer<typeof Holding>;
 

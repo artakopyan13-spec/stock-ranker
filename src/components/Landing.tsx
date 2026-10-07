@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { FeatureIcon } from "@/components/FeatureIcon";
+import { fetchJson } from "@/lib/fetch-json";
 
 const CTA_PRIMARY = "Analyze a stock — free";
 
@@ -39,13 +40,40 @@ const FAQ: { q: string; a: string }[] = [
   { q: "What can it analyze?", a: "Any listed stock, plus your whole portfolio. Screen the universe, compare names, or X-ray what you already own." },
 ];
 
-export function Landing() {
+/** Ticker shape incl. international listings: 7203.T, 005930.KS, BRK-B. */
+const TICKER_SHAPE = /^[A-Z0-9][A-Z0-9.\-]{0,11}$/;
+
+/** Real cached ratings for the scrolling strip: [symbol, "8/10", FCF emoji]. */
+export type CoverageItem = [string, string, string];
+
+export function Landing({ coverage }: { coverage?: CoverageItem[] }) {
   const router = useRouter();
   const [ticker, setTicker] = useState("");
-  const tryIt = (e: React.FormEvent) => {
+  const [resolving, setResolving] = useState(false);
+  const [searchMsg, setSearchMsg] = useState<string | null>(null);
+  const live = Boolean(coverage && coverage.length >= 6);
+  const strip = live ? coverage! : COVERAGE;
+
+  // Accept a ticker ("NVDA", "7203.T") or a plain name ("apple"): names resolve through symbol search.
+  const tryIt = async (e: React.FormEvent) => {
     e.preventDefault();
-    const t = ticker.trim().toUpperCase().replace(/[^A-Z.\-]/g, "");
-    if (t) router.push(`/t/${encodeURIComponent(t)}`);
+    const raw = ticker.trim();
+    if (!raw || resolving) return;
+    const upper = raw.toUpperCase();
+    const shaped = TICKER_SHAPE.test(upper) ? upper : null;
+    // Typed like a symbol ("NVDA", "7203.T"): go straight there, no lookup.
+    if (shaped && raw === upper) {
+      router.push(`/t/${encodeURIComponent(shaped)}`);
+      return;
+    }
+    setSearchMsg(null);
+    setResolving(true);
+    const res = await fetchJson<{ matches?: { symbol: string }[] }>(`/api/search?q=${encodeURIComponent(raw)}`);
+    setResolving(false);
+    const matches = res.data?.matches ?? [];
+    const pick = matches.find((m) => m.symbol.toUpperCase() === upper)?.symbol ?? matches[0]?.symbol ?? shaped;
+    if (pick) router.push(`/t/${encodeURIComponent(pick.toUpperCase())}`);
+    else setSearchMsg(res.ok ? `No stock found for “${raw}”. Try its ticker, e.g. NVDA.` : res.error);
   };
 
   useEffect(() => {
@@ -158,17 +186,17 @@ export function Landing() {
               <input
                 value={ticker}
                 onChange={(e) => setTicker(e.target.value)}
-                placeholder="Try any ticker — e.g. NVDA"
-                aria-label="Ticker to analyze"
+                placeholder="Try any ticker or company — e.g. NVDA"
+                aria-label="Ticker or company to analyze"
                 autoComplete="off"
-                autoCapitalize="characters"
                 className="flex-1"
               />
-              <button type="submit" className="btn btn-primary px-5 lp-shine">Analyze free →</button>
+              <button type="submit" className="btn btn-primary px-5 lp-shine" disabled={resolving}>{resolving ? "Finding…" : "Analyze free →"}</button>
             </form>
+            {searchMsg && <div role="alert" className="mt-2 text-xs text-red">{searchMsg}</div>}
             <div className="mt-2 text-xs text-muted">One free analysis, no signup. After that, <Link href="/signin" className="text-purple no-underline hover:underline">sign in — it&rsquo;s free</Link> — to run more.</div>
             <div className="mt-3">
-              <Link href="/examples" className="text-sm text-muted hover:text-text no-underline">or see a live example →</Link>
+              <Link href="/examples" className="text-sm text-muted hover:text-text no-underline">or see a worked example →</Link>
             </div>
             <div className="mt-6 flex flex-wrap gap-x-5 gap-y-2 text-xs text-muted">
               <span className="lp-tick">Source‑verified</span>
@@ -256,9 +284,12 @@ export function Landing() {
 
         {/* coverage ticker */}
         <div className="relative border-t border-line/70 bg-bg/40 backdrop-blur">
+          <span className="absolute left-2 top-1/2 -translate-y-1/2 z-10 chip chip-muted text-[0.6rem]" title={live ? "Latest cached AI ratings" : "Example ratings, not live"}>
+            {live ? "Latest ratings" : "Illustrative"}
+          </span>
           <div className="lp-marquee py-2.5">
             <div className="lp-marquee-track">
-              {[...COVERAGE, ...COVERAGE].map(([sym, rating, fcf], i) => (
+              {[...strip, ...strip].map(([sym, rating, fcf], i) => (
                 <span key={`${sym}-${i}`} className="lp-tickitem">
                   <span className="font-semibold text-text">{sym}</span>
                   <span className="text-gold font-semibold">{rating}</span>
@@ -500,7 +531,7 @@ export function Landing() {
           <p className="reveal text-muted mt-4 max-w-md mx-auto">Run your first analysis in about a minute. See exactly what it gets right — and where it says it’s unsure.</p>
           <div className="reveal mt-8 flex flex-wrap gap-3 justify-center">
             <Link href="/signin" className="btn btn-primary no-underline px-6 py-3 lp-shine">{CTA_PRIMARY}</Link>
-            <Link href="/examples" className="btn no-underline px-6 py-3">See a live example →</Link>
+            <Link href="/examples" className="btn no-underline px-6 py-3">See a worked example →</Link>
           </div>
           <div className="reveal mt-5 flex flex-wrap gap-x-5 gap-y-1 justify-center text-xs text-muted">
             <span className="lp-tick">Free</span>
@@ -526,8 +557,8 @@ export function Landing() {
   );
 }
 
-/** A slice of the coverage universe for the scrolling ticker — illustrative, not live quotes. */
-const COVERAGE: [string, string, string][] = [
+/** Fallback for the scrolling strip when too few real ratings are cached — labelled "Illustrative". */
+const COVERAGE: CoverageItem[] = [
   ["NVDA", "8/10", "✅"],
   ["AAPL", "7/10", "✅"],
   ["MSFT", "8/10", "✅"],

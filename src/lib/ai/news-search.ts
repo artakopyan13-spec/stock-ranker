@@ -39,7 +39,8 @@ export async function searchNewsViaWeb(symbol: string, company: string, now: Dat
     messages: [{ role: "user", content: prompt }],
   }, { timeout: 15000, maxRetries: 0 });
 
-  const searches = response.content.filter((b): b is Anthropic.ServerToolUseBlock => b.type === "server_tool_use").length;
+  // Billed searches come from the usage counter; server_tool_use blocks can include non-search tool steps.
+  const searches = response.usage.server_tool_use?.web_search_requests ?? response.content.filter((b): b is Anthropic.ServerToolUseBlock => b.type === "server_tool_use").length;
   await logUsage("news_search", e.NEWS_SEARCH_MODEL, usageFromMessage(response.usage), { symbol, webSearches: searches });
 
   if (response.stop_reason === "refusal" || !response.parsed_output) return [];

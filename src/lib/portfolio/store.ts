@@ -1,4 +1,3 @@
-import { z } from "zod";
 import { db } from "@/lib/db";
 import { getQuotes } from "@/lib/data/quotes";
 import { Holding, type EnrichedHolding, type HoldingsInput, type PortfolioMetrics, type PortfolioPayload } from "@/lib/portfolio/schema";
@@ -19,7 +18,13 @@ type Row = {
 
 function parseHoldingsJson(json: string): Holding[] {
   try {
-    return z.array(Holding).parse(JSON.parse(json));
+    const raw: unknown = JSON.parse(json);
+    if (!Array.isArray(raw)) return [];
+    // Per-row: one out-of-bounds legacy row must not wipe the whole portfolio.
+    return raw.flatMap((h) => {
+      const r = Holding.safeParse(h);
+      return r.success ? [r.data] : [];
+    });
   } catch {
     return [];
   }
@@ -39,11 +44,16 @@ export interface SaveInput extends HoldingsInput {
   alltime?: string | null;
 }
 
-/** Create or update the user's portfolio. Editing holdings invalidates the stored review. */
+/** Create or update the user's portfolio. Editing holdings or cash invalidates the stored review
+ *  (cash moves every weight, and new cash drives the review's deployment plan). */
 export async function savePortfolio(userId: string, input: SaveInput): Promise<Row> {
   const existing = await getPortfolioRow(userId);
   const holdingsJson = JSON.stringify(input.holdings);
-  const holdingsChanged = !existing || existing.holdings !== holdingsJson;
+  const inputsChanged =
+    !existing ||
+    existing.holdings !== holdingsJson ||
+    existing.cashUsd !== input.cashUsd ||
+    (input.newCashUsd !== undefined && existing.newCashUsd !== input.newCashUsd);
   const extra = {
     ...(input.newCashUsd !== undefined ? { newCashUsd: input.newCashUsd } : {}),
     ...(input.alltime !== undefined ? { alltime: input.alltime } : {}),
@@ -56,7 +66,7 @@ export async function savePortfolio(userId: string, input: SaveInput): Promise<R
         cashUsd: input.cashUsd,
         notes: input.notes,
         ...extra,
-        ...(holdingsChanged ? { review: null, reviewAt: null } : {}),
+        ...(inputsChanged ? { review: null, reviewAt: null } : {}),
       },
     });
   }

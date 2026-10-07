@@ -5,6 +5,8 @@ import { rateLimit } from "@/lib/quota/ratelimit";
 import { isValidSymbol } from "@/lib/data";
 import { tickerContext } from "@/lib/ai/grounding";
 import { runChatTurn, type ChatEvent } from "@/lib/ai/chat-service";
+import { AI_ACTION_KINDS, gateAiAction } from "@/lib/quota/gate";
+import { env } from "@/lib/env";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -23,14 +25,21 @@ export async function POST(req: Request): Promise<Response> {
   if (!ipRl.ok) return Response.json({ error: "Too many requests. Slow down a moment." }, { status: 429, headers: { "retry-after": String(ipRl.retryAfterSec) } });
 
   const user = await currentUser();
-  const ctx = await tickerContext(ticker);
+  // Gate before building the grounding context (a DB read + data fetch) so denied and anonymous
+  // requests cost nothing. The result is handed to runChatTurn so it isn't checked (and rate-limited) twice.
+  const gate = await gateAiAction({ userId: user?.id ?? null, ip, kinds: AI_ACTION_KINDS, dailyCap: env().FREE_DAILY_CHAT_MESSAGES });
 
   const encoder = new TextEncoder();
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
       const emit = (e: ChatEvent) => controller.enqueue(encoder.encode(`event: ${e.type}\ndata: ${JSON.stringify(e)}\n\n`));
       try {
-        await runChatTurn({ userId: user?.id ?? null, ip, thread: `ticker:${ticker}`, system: ctx.system, message: parsed.data.message, symbol: ticker, emit });
+        if (!gate.allow) {
+          emit({ type: "notice", reason: gate.reason, message: gate.message });
+          return;
+        }
+        const ctx = await tickerContext(ticker);
+        await runChatTurn({ userId: user?.id ?? null, ip, thread: `ticker:${ticker}`, system: ctx.system, message: parsed.data.message, symbol: ticker, emit, gate });
       } catch (err) {
         emit({ type: "error", message: err instanceof Error ? err.message : "Unexpected error" });
       } finally {

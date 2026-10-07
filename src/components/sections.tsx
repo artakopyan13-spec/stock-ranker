@@ -337,7 +337,7 @@ export function DataConcerns({ concerns }: { concerns: string[] }) {
 export function SourcesFooter({ analysis }: { analysis: Analysis }) {
   const v = analysis.meta.verification;
   return (
-    <ExpandableCard header={<div className="text-sm font-semibold text-muted uppercase tracking-wide">Sources ({analysis.sources.length}) · verification {v.passed ? "✓ passed" : "✗ failed"} · {analysis.meta.model} · ${analysis.meta.usage.usd.toFixed(3)}</div>}>
+    <ExpandableCard header={<div className="text-sm font-semibold text-muted uppercase tracking-wide">Sources ({analysis.sources.length}) · verification {v.passed ? "✓ passed" : "✗ failed"} · {analysis.meta.model}</div>}>
       <ul className="text-xs text-muted space-y-1">
         {analysis.sources.map((s) => (
           <li key={s.id}>

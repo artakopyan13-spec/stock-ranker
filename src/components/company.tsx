@@ -1,8 +1,10 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import type { CompanyData, FinancialRow, PricePoint, PriceRange } from "@/lib/data/company";
 import { BarChart, LineChart } from "@/components/charts";
+import { fetchJson } from "@/lib/fetch-json";
 import { compact, dateLabel, money, multiple, pct, price as fmtPrice } from "@/lib/format";
 import { SkeletonCard, Card, Tag } from "@/components/ui";
 import { ChatPanel } from "@/components/ChatPanel";
@@ -19,7 +21,7 @@ const qLabel = (p: string) => {
 const yLabel = (p: string) => p.slice(0, 4);
 
 // ---------- Financials tables ----------
-type LineDef = { key: keyof FinancialRow; label: string; kind: "money" | "num2" };
+type LineDef = { key: keyof FinancialRow; label: string; kind: "money" | "num2" | "count" };
 const INCOME: LineDef[] = [
   { key: "revenue", label: "Revenue", kind: "money" },
   { key: "grossProfit", label: "Gross profit", kind: "money" },
@@ -33,7 +35,7 @@ const BALANCE: LineDef[] = [
   { key: "totalDebt", label: "Total debt", kind: "money" },
   { key: "totalAssets", label: "Total assets", kind: "money" },
   { key: "equity", label: "Shareholder equity", kind: "money" },
-  { key: "sharesOutstanding", label: "Shares outstanding", kind: "money" },
+  { key: "sharesOutstanding", label: "Shares outstanding", kind: "count" },
 ];
 const CASHFLOW: LineDef[] = [
   { key: "operatingCashFlow", label: "Operating cash flow", kind: "money" },
@@ -60,7 +62,7 @@ function FinTable({ rows, defs, currency, label }: { rows: FinancialRow[]; defs:
               const v = r[d.key] as number | null;
               return (
                 <td key={r.period} className="text-right tabular-nums">
-                  {v === null ? <span className="text-dim">—</span> : d.kind === "money" ? money(v, currency) : v.toFixed(2)}
+                  {v === null ? <span className="text-dim">—</span> : d.kind === "money" ? money(v, currency) : d.kind === "count" ? compact(v) : v.toFixed(2)}
                 </td>
               );
             })}
@@ -103,10 +105,7 @@ export function PriceChart({ symbol }: { symbol: string }) {
     let live = true;
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setPrices(null);
-    fetch(`/api/company/${symbol}/prices?range=${range}`)
-      .then((r) => r.json())
-      .then((d) => live && setPrices(d.prices))
-      .catch(() => live && setPrices([]));
+    void fetchJson<{ prices?: PricePoint[] }>(`/api/company/${symbol}/prices?range=${range}`).then((r) => live && setPrices(r.data?.prices ?? []));
     return () => {
       live = false;
     };
@@ -181,7 +180,7 @@ export function Trends({ data }: { data: CompanyData }) {
           { name: "FCF", color: "var(--green)", values: a.map((r) => marginPct(r.fcf, r.revenue)) },
         ]} />
       </Card>
-      <Card title="Shares outstanding"><BarChart currency={data.currency} points={a.map((r) => ({ label: yLabel(r.period), value: r.sharesOutstanding }))} /></Card>
+      <Card title="Shares outstanding"><BarChart currency="shares" points={a.map((r) => ({ label: yLabel(r.period), value: r.sharesOutstanding }))} /></Card>
       <Card title="Debt vs cash">
         <LineChart unit="" labels={labels} series={[
           { name: "cash", color: "var(--green)", values: a.map((r) => (r.cash === null ? null : r.cash / 1e9)) },
@@ -214,12 +213,13 @@ export function ValuationHistory({ data }: { data: CompanyData }) {
         {series.map((s) => {
           const last = s.values[s.values.length - 1];
           const a = avg(s.values);
-          const rich = last !== null && a !== null && last > a;
+          const known = last !== null && a !== null;
+          const rich = known && last > a;
           return (
             <div key={s.name} className="card-2 p-2">
               <div className="text-muted">{s.name}</div>
               <div className="text-text font-semibold">{multiple(last)}</div>
-              <div className={rich ? "text-red" : "text-green"}>avg {multiple(a)} · {rich ? "above" : "below"}</div>
+              {known ? <div className={rich ? "text-red" : "text-green"}>avg {multiple(a)} · {rich ? "above" : "below"}</div> : <div className="text-dim">n/a</div>}
             </div>
           );
         })}
@@ -284,9 +284,11 @@ export function Overview({ data }: { data: CompanyData }) {
       )}
       {o.insiders.length > 0 && (
         <Card title="Recent insider transactions">
-          <table className="tbl w-full text-sm min-w-[560px]"><thead><tr><th>Date</th><th>Name</th><th>Relation</th><th>Action</th><th className="text-right">Shares</th></tr></thead>
-            <tbody>{o.insiders.slice(0, 12).map((t, i) => (<tr key={i}><td className="text-xs text-muted">{dateLabel(t.date)}</td><td>{t.name}</td><td className="text-xs text-muted">{t.relation}</td><td className="text-xs">{t.action}</td><td className="text-right">{t.shares?.toLocaleString() ?? "—"}</td></tr>))}</tbody>
-          </table>
+          <div className="overflow-x-auto">
+            <table className="tbl w-full text-sm min-w-[560px]"><thead><tr><th>Date</th><th>Name</th><th>Relation</th><th>Action</th><th className="text-right">Shares</th></tr></thead>
+              <tbody>{o.insiders.slice(0, 12).map((t, i) => (<tr key={i}><td className="text-xs text-muted">{dateLabel(t.date)}</td><td>{t.name}</td><td className="text-xs text-muted">{t.relation}</td><td className="text-xs">{t.action}</td><td className="text-right">{t.shares?.toLocaleString() ?? "—"}</td></tr>))}</tbody>
+            </table>
+          </div>
           <p className="text-[0.68rem] text-dim mt-2">{o.source} · as of {dateLabel(o.asOf)}</p>
         </Card>
       )}
@@ -300,22 +302,47 @@ const DATA_TABS: TabId[] = ["scorecard", "financials", "charts", "overview"];
 
 const TAB_IDS: TabId[] = ["analysis", "scorecard", "deep", "earnings", "committee", "copilot", "timemachine", "financials", "charts", "overview"];
 
-export function CompanyTabs({ symbol, analysis, signedIn = false, initialTab }: { symbol: string; analysis: React.ReactNode; signedIn?: boolean; initialTab?: string }) {
-  const [tab, setTab] = useState<TabId>(TAB_IDS.includes(initialTab as TabId) ? (initialTab as TabId) : "analysis");
+export function CompanyTabs({ symbol, analysis, signedIn = false }: { symbol: string; analysis: React.ReactNode; signedIn?: boolean }) {
+  // The active tab lives in the URL (?tab=…) so in-page links (e.g. the Deep score tile) and the
+  // back button switch tabs. Tab clicks use the native History API: it syncs useSearchParams
+  // without a server round-trip for this dynamic page.
+  const searchParams = useSearchParams();
+  const urlTab = searchParams.get("tab");
+  const tab: TabId = TAB_IDS.includes(urlTab as TabId) ? (urlTab as TabId) : "analysis";
+  const selectTab = (id: TabId) => {
+    const params = new URLSearchParams(searchParams.toString());
+    if (id === "analysis") params.delete("tab");
+    else params.set("tab", id);
+    const qs = params.toString();
+    window.history.replaceState(null, "", `${window.location.pathname}${qs ? `?${qs}` : ""}`);
+  };
+
   const [data, setData] = useState<CompanyData | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Bumped by "Retry"; the fetch runs once per (symbol, attempt) — a failure never re-triggers it.
+  const [attempt, setAttempt] = useState(0);
+  const [fetchedKey, setFetchedKey] = useState<string | null>(null);
+  const wantData = DATA_TABS.includes(tab);
+  const key = `${symbol}:${attempt}`;
 
   useEffect(() => {
-    if (!DATA_TABS.includes(tab) || data || loading) return;
+    if (!wantData || fetchedKey === key) return;
+    let live = true;
     // eslint-disable-next-line react-hooks/set-state-in-effect
+    setFetchedKey(key);
     setLoading(true);
-    fetch(`/api/company/${symbol}`)
-      .then(async (r) => (r.ok ? ((await r.json()) as CompanyData) : Promise.reject(new Error((await r.json()).error))))
-      .then((d) => setData(d))
-      .catch((e) => setError(e.message))
-      .finally(() => setLoading(false));
-  }, [tab, symbol, data, loading]);
+    setError(null);
+    void fetchJson<CompanyData>(`/api/company/${symbol}`).then((r) => {
+      if (!live) return;
+      if (r.ok && r.data) setData(r.data);
+      else setError(r.error ?? "Couldn't load company data.");
+      setLoading(false);
+    });
+    return () => {
+      live = false;
+    };
+  }, [wantData, fetchedKey, key, symbol]);
 
   const tabs: Array<[TabId, string]> = [
     ["analysis", "AI analysis"],
@@ -333,7 +360,7 @@ export function CompanyTabs({ symbol, analysis, signedIn = false, initialTab }: 
     <div className="space-y-4">
       <div className="flex gap-1 border-b border-line overflow-x-auto">
         {tabs.map(([id, label]) => (
-          <button key={id} onClick={() => setTab(id)} className={`px-4 py-2 text-sm whitespace-nowrap border-b-2 -mb-px ${tab === id ? "border-gold text-text" : "border-transparent text-muted hover:text-text"}`}>{label}</button>
+          <button key={id} onClick={() => selectTab(id)} className={`px-4 py-2 text-sm whitespace-nowrap border-b-2 -mb-px ${tab === id ? "border-gold text-text" : "border-transparent text-muted hover:text-text"}`}>{label}</button>
         ))}
       </div>
       <div hidden={tab !== "analysis"}>{analysis}</div>
@@ -353,7 +380,12 @@ export function CompanyTabs({ symbol, analysis, signedIn = false, initialTab }: 
         />
       )}
       {DATA_TABS.includes(tab) && (
-        loading ? <SkeletonCard lines={5} /> : error ? <div className="card p-6 text-sm text-red">{error}</div> : data ? (
+        loading ? <SkeletonCard lines={5} /> : error ? (
+          <div className="card p-6 text-sm flex items-center gap-3 flex-wrap">
+            <span className="text-red">{error}</span>
+            <button type="button" className="btn text-xs py-1 px-3" onClick={() => setAttempt((n) => n + 1)}>Retry</button>
+          </div>
+        ) : data ? (
           <>
             {tab === "scorecard" && <Scorecard data={data} />}
             {tab === "financials" && <Financials data={data} />}

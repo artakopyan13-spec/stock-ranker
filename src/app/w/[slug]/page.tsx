@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { env } from "@/lib/env";
-import { currentUser, isAdmin } from "@/auth";
+import { currentUser } from "@/auth";
 import { getRankings } from "@/lib/rankings";
 import { ownsWatchlist } from "@/lib/watchlists";
 import { WatchlistTools } from "@/components/WatchlistTools";
@@ -16,11 +16,11 @@ export async function generateMetadata({ params }: PageProps<"/w/[slug]">): Prom
 
 export default async function WatchlistPage({ params }: PageProps<"/w/[slug]">) {
   const { slug } = await params;
-  const rankings = await getRankings(slug);
+  const user = await currentUser();
+  const rankings = await getRankings(slug, user);
   if (!rankings) notFound();
   const e = env();
-  const user = await currentUser();
-  const canEdit = await ownsWatchlist(slug, user?.id ?? null, await isAdmin());
+  const canEdit = await ownsWatchlist(slug, user?.id ?? null, user?.role === "admin");
   const analyzed = rankings.rows.filter((r) => r.analysisId).length;
   return (
     <div className="space-y-4">

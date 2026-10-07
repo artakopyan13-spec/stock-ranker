@@ -1,44 +1,64 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import type { ResearchOutput } from "@/lib/research/schema";
+import type { ReportMeta } from "@/lib/reports/freshness";
+import { postJson } from "@/lib/fetch-json";
+import { dateLabel } from "@/lib/format";
 
-const SUGGESTIONS = ["Artificial intelligence", "Nuclear energy", "Cybersecurity", "Weight-loss drugs", "Semiconductors", "Defense", "Quantum computing", "Space"];
+interface Notice {
+  reason: string;
+  message: string;
+}
+interface ResearchResponse {
+  data?: ResearchOutput;
+  cached?: boolean;
+  meta?: ReportMeta;
+  notice?: Notice;
+}
 
-export function ResearchPanel({ initial }: { initial?: string }) {
+/** The quota gate words its denials for stock analyses; say "research" here. */
+const RESEARCH_COPY: Record<string, string> = {
+  login_required: "Sign in to run fresh research — it's free. Cached industries stay free to view.",
+  kill_switch: "Fresh research is paused right now due to high demand. Cached results are still available.",
+  global_cap: "Today's fresh-research limit is reached. Cached results are still available; fresh runs resume tomorrow.",
+};
+
+export function ResearchPanel({ initial, suggestions }: { initial?: string; suggestions: string[] }) {
   const [industry, setIndustry] = useState(initial ?? "");
   const [data, setData] = useState<ResearchOutput | null>(null);
+  const [meta, setMeta] = useState<ReportMeta | null>(null);
   const [busy, setBusy] = useState(false);
-  const [notice, setNotice] = useState<string | null>(null);
-  const [upgrade, setUpgrade] = useState(false);
-  const [cached, setCached] = useState(false);
+  const [notice, setNotice] = useState<Notice | null>(null);
 
   async function run(q: string, force = false) {
     const term = q.trim();
     if (!term || busy) return;
     setBusy(true);
     setNotice(null);
-    setUpgrade(false);
     setIndustry(term);
-    try {
-      const res = await fetch("/api/research", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ industry: term, force }) });
-      const body = (await res.json().catch(() => ({}))) as { data?: ResearchOutput; cached?: boolean; notice?: { reason: string; message: string }; error?: string };
-      if (body.notice) {
-        setNotice(body.notice.message);
-        setUpgrade(body.notice.reason === "user_quota");
-      } else if (body.data) {
-        setData(body.data);
-        setCached(Boolean(body.cached));
-      } else {
-        setNotice(body.error ?? "Couldn't build research for that. Try another industry.");
-      }
-    } catch {
-      setNotice("Something went wrong. Try again.");
-    } finally {
-      setBusy(false);
+    const res = await postJson<ResearchResponse>("/api/research", { industry: term, force });
+    const body = res.data ?? {};
+    // Cached research is always worth showing — a notice (quota, "already verified", a failed
+    // refresh) rides along as a banner instead of replacing it.
+    if (body.data) {
+      setData(body.data);
+      setMeta(body.meta ?? null);
     }
+    if (body.notice) setNotice({ reason: body.notice.reason, message: RESEARCH_COPY[body.notice.reason] ?? body.notice.message });
+    else if (!body.data) setNotice({ reason: "error", message: res.error ?? "Couldn't build research for that. Try another industry." });
+    setBusy(false);
   }
+
+  // Deep links (/research?q=…) open straight onto the result. Deferred a tick so the effect
+  // doesn't set state synchronously; the cleanup keeps Strict Mode's double-mount to one run.
+  useEffect(() => {
+    if (!initial?.trim()) return;
+    const t = setTimeout(() => void run(initial), 0);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- run once for the URL's ?q=
+  }, []);
 
   return (
     <div className="space-y-5">
@@ -49,22 +69,24 @@ export function ResearchPanel({ initial }: { initial?: string }) {
           void run(industry);
         }}
       >
-        <input value={industry} onChange={(e) => setIndustry(e.target.value)} placeholder="Enter an industry or theme — e.g. weight-loss drugs, AI chips, defense" className="flex-1 min-w-[240px] py-2 px-3" />
+        <label htmlFor="research-industry" className="sr-only">Industry or theme</label>
+        <input id="research-industry" value={industry} onChange={(e) => setIndustry(e.target.value)} placeholder="Enter an industry or theme — e.g. weight-loss drugs, AI chips, defense" className="flex-1 min-w-[240px] py-2 px-3" />
         <button type="submit" className="btn btn-primary" disabled={busy}>{busy ? "Researching…" : "Find companies"}</button>
       </form>
 
       {!data && !busy && (
         <div className="flex flex-wrap gap-2">
-          {SUGGESTIONS.map((s) => (
+          {suggestions.map((s) => (
             <button key={s} type="button" className="chip chip-muted hover:text-text" onClick={() => void run(s)}>{s}</button>
           ))}
         </div>
       )}
 
       {notice && (
-        <div className="card p-4 text-sm flex items-center gap-3 flex-wrap">
-          <span className="text-gold">{notice}</span>
-          {upgrade && <a href="/pricing" className="btn btn-primary no-underline text-xs px-3 py-1">Upgrade →</a>}
+        <div role="status" className="card p-4 text-sm flex items-center gap-3 flex-wrap">
+          <span className="text-gold">{notice.message}</span>
+          {notice.reason === "login_required" && <Link href="/signin" className="btn btn-primary no-underline text-xs px-3 py-1">Sign in →</Link>}
+          {notice.reason === "user_quota" && <Link href="/pricing" className="btn btn-primary no-underline text-xs px-3 py-1">Upgrade →</Link>}
         </div>
       )}
 
@@ -76,7 +98,11 @@ export function ResearchPanel({ initial }: { initial?: string }) {
             <div className="flex items-center justify-between gap-2 flex-wrap">
               <h2 className="text-lg font-semibold capitalize">{data.industry}</h2>
               <div className="flex items-center gap-3">
-                <span className="text-[0.7rem] text-muted">as of {data.asOf}{cached ? " · cached" : ""}</span>
+                {meta && (
+                  <span className={`text-[0.7rem] ${meta.mode === "web" ? "text-green" : "text-muted"}`}>
+                    {meta.mode === "web" ? "Web-verified" : "From AI knowledge (may be out of date)"} · built {dateLabel(meta.builtAt)}
+                  </span>
+                )}
                 <button type="button" onClick={() => void run(industry, true)} disabled={busy} className="btn text-xs py-1 px-2" title="Regenerate with the latest, plainest explanation">↻ Regenerate</button>
               </div>
             </div>

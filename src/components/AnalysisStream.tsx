@@ -6,6 +6,7 @@ import type { Analysis, ModelOutput, Verification } from "@/lib/analysis/schema"
 import type { DataSections } from "@/lib/analysis/assemble";
 import { AnalysisView } from "@/components/AnalysisView";
 import { AnalyzedAgo, ErrorState, SkeletonCard } from "@/components/ui";
+import { dateLabel } from "@/lib/format";
 import { BalanceSection, BusinessSection, CatalystsSection, FcfSection, ForecastSection, GrowthSection, HeaderSection, NewsSection, PriceSection, RatingSection, ThesisSection, TripwireSection, ValuationSection } from "@/components/sections";
 
 interface StreamState {
@@ -17,16 +18,41 @@ interface StreamState {
   error: string | null;
   details: Verification | null;
   notice: string | null;
+  /** The shown analysis is past its TTL (and no refresh has replaced it yet). */
+  stale: boolean;
 }
 
-const initial = (analysis: Analysis | null): StreamState => ({ phase: analysis ? "done" : "idle", status: "", data: null, sections: {}, analysis, error: null, details: null, notice: null });
+const initial = (analysis: Analysis | null, stale: boolean): StreamState => ({ phase: analysis ? "done" : "idle", status: "", data: null, sections: {}, analysis, error: null, details: null, notice: null, stale: !!analysis && stale });
+
+/** Vercel answers platform failures (timeout, rate limit) as HTML/text, never JSON. */
+async function httpErrorMessage(res: Response): Promise<string> {
+  const isJson = (res.headers.get("content-type") ?? "").includes("application/json");
+  const body = isJson ? ((await res.json().catch(() => null)) as { error?: string } | null) : null;
+  if (body?.error) return body.error;
+  if (res.status === 504) return "This took too long and timed out. Try again — it usually works on a second run.";
+  if (res.status === 429) return "Too many requests right now. Wait a moment and try again.";
+  return `Something went wrong (${res.status}). Try again.`;
+}
+
+function FailureDetails({ details }: { details: Verification | null }) {
+  if (!details) return null;
+  return (
+    <ul className="list-disc ml-4">
+      {details.checks.filter((c) => !c.ok).map((c) => (
+        <li key={c.id}>
+          {c.id}: {c.detail}
+        </li>
+      ))}
+    </ul>
+  );
+}
 
 /**
  * Drives POST /api/analyze (SSE). Code-derived sections render the moment data arrives;
  * model sections appear one by one; the verified document replaces everything on `done`.
  */
-export function AnalysisStream({ ticker, initialAnalysis, shareUrl, autoStart, signedIn = false }: { ticker: string; initialAnalysis: Analysis | null; shareUrl: string | null; autoStart: boolean; signedIn?: boolean }) {
-  const [state, setState] = useState<StreamState>(() => initial(initialAnalysis));
+export function AnalysisStream({ ticker, initialAnalysis, stale = false, shareUrl, autoStart, signedIn = false }: { ticker: string; initialAnalysis: Analysis | null; stale?: boolean; shareUrl: string | null; autoStart: boolean; signedIn?: boolean }) {
+  const [state, setState] = useState<StreamState>(() => initial(initialAnalysis, stale));
   const abortRef = useRef<AbortController | null>(null);
 
   const run = useCallback(
@@ -37,10 +63,7 @@ export function AnalysisStream({ ticker, initialAnalysis, shareUrl, autoStart, s
       setState((s) => ({ ...s, phase: "running", status: "Starting…", data: null, sections: {}, error: null, details: null, notice: null }));
       try {
         const res = await fetch("/api/analyze", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ticker, force }), signal: ctrl.signal });
-        if (!res.ok || !res.body) {
-          const body = (await res.json().catch(() => ({}))) as { error?: string };
-          throw new Error(body.error ?? `HTTP ${res.status}`);
-        }
+        if (!res.ok || !res.body) throw new Error(await httpErrorMessage(res));
         const reader = res.body.getReader();
         const decoder = new TextDecoder();
         let buffer = "";
@@ -66,7 +89,8 @@ export function AnalysisStream({ ticker, initialAnalysis, shareUrl, autoStart, s
                 case "section":
                   return { ...s, sections: { ...s.sections, [String(payload.key)]: payload.value } };
                 case "done":
-                  return { ...s, phase: "done", analysis: payload.analysis as Analysis, status: "" };
+                  // A "done" after a notice is the cached fallback — still stale.
+                  return { ...s, phase: "done", analysis: payload.analysis as Analysis, status: "", stale: s.notice ? s.stale : false };
                 case "notice":
                   return { ...s, notice: String(payload.message) };
                 case "error":
@@ -94,31 +118,63 @@ export function AnalysisStream({ ticker, initialAnalysis, shareUrl, autoStart, s
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoStart]);
 
-  if (state.phase === "done" && state.analysis) {
+  // An analysis already on screen stays on screen through a refresh, its errors and notices.
+  if (state.analysis) {
     const a = state.analysis;
+    const running = state.phase === "running";
     return (
       <div className="space-y-3">
-      {state.notice && (
-        <div className="card p-3 text-sm border-l-2 border-l-gold text-muted flex flex-wrap items-center gap-2">
-          <span>{state.notice} Showing the latest cached analysis.</span>
-          {!signedIn && <a href="/signin" className="btn btn-primary py-1 px-3 text-xs no-underline ml-auto">Sign in — free</a>}
-        </div>
-      )}
-      <AnalysisView
-        analysis={a}
-        headerRight={
-          <>
-            <AnalyzedAgo analyzedAt={a.meta.analyzedAt} onRefresh={a.meta.demo ? undefined : () => run(true)} />
-            <span>· data as of {a.meta.dataAsOf.slice(0, 10)}</span>
-            <span>· {a.meta.dataProvider}</span>
-            {shareUrl && (
-              <Link href={shareUrl} className="chip chip-purple no-underline">
-                public link ↗
-              </Link>
+        {running && (
+          <div className="card p-3 flex items-center gap-3 text-sm">
+            <span className="inline-block w-2 h-2 rounded-full bg-gold animate-pulse" />
+            <span className="text-muted">Refreshing{state.status ? ` — ${state.status}` : "…"} The analysis below stays until the new one is verified.</span>
+          </div>
+        )}
+        {!running && state.stale && !state.notice && state.phase !== "error" && (
+          <div className="card p-3 text-sm border-l-2 border-l-gold text-muted flex flex-wrap items-center gap-2">
+            <span>Analysis from {dateLabel(a.meta.analyzedAt)}.</span>
+            <button type="button" className="btn btn-primary py-1 px-3 text-xs ml-auto" onClick={() => run(true)}>
+              Refresh
+            </button>
+          </div>
+        )}
+        {state.notice && !running && (
+          <div className="card p-3 text-sm border-l-2 border-l-gold text-muted flex flex-wrap items-center gap-2">
+            <span>{state.notice} Showing the latest cached analysis.</span>
+            {!signedIn && <a href="/signin" className="btn btn-primary py-1 px-3 text-xs no-underline ml-auto">Sign in — free</a>}
+          </div>
+        )}
+        {state.phase === "error" && (
+          <div className="card p-3 text-sm border-l-2 border-l-red space-y-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-red">Refresh failed: {state.error ?? "Unknown error"}</span>
+              <button type="button" className="btn py-1 px-3 text-xs ml-auto" onClick={() => run(true)}>
+                Try again
+              </button>
+            </div>
+            <div className="text-xs text-muted">Showing the previous analysis.</div>
+            {state.details && (
+              <div className="text-xs text-muted">
+                <FailureDetails details={state.details} />
+              </div>
             )}
-          </>
-        }
-      />
+          </div>
+        )}
+        <AnalysisView
+          analysis={a}
+          headerRight={
+            <>
+              <AnalyzedAgo analyzedAt={a.meta.analyzedAt} onRefresh={a.meta.demo ? undefined : () => run(true)} refreshing={running} />
+              <span>· data as of {a.meta.dataAsOf.slice(0, 10)}</span>
+              <span>· {a.meta.dataProvider}</span>
+              {shareUrl && (
+                <Link href={shareUrl} className="chip chip-purple no-underline">
+                  public link ↗
+                </Link>
+              )}
+            </>
+          }
+        />
       </div>
     );
   }
@@ -142,17 +198,7 @@ export function AnalysisStream({ ticker, initialAnalysis, shareUrl, autoStart, s
         <ErrorState
           title={`Could not analyze ${ticker}`}
           message={state.error ?? "Unknown error"}
-          details={
-            state.details ? (
-              <ul className="list-disc ml-4">
-                {state.details.checks.filter((c) => !c.ok).map((c) => (
-                  <li key={c.id}>
-                    {c.id}: {c.detail}
-                  </li>
-                ))}
-              </ul>
-            ) : undefined
-          }
+          details={state.details ? <FailureDetails details={state.details} /> : undefined}
         />
         <button type="button" className="btn" onClick={() => run(true)}>
           Try again

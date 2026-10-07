@@ -368,4 +368,20 @@ model RateLimit {
   key         String   @id // e.g. "user:<id>:min:<epochMinute>" or "ip:<ip>:min:<n>"
   count       Int      @default(0)
   windowStart DateTime @default(now())
+
+  @@index([windowStart])
+}
+
+/// A Stripe Checkout Session already turned into a plan, so an old /billing/success link can't re-grant it.
+model ProcessedCheckout {
+  sessionId String   @id
+  userId    String
+  createdAt DateTime @default(now())
+}
+
+/// Stripe webhook event ids already handled — retries and duplicate deliveries become no-ops.
+model StripeEvent {
+  id        String   @id
+  type      String
+  createdAt DateTime @default(now())
 }

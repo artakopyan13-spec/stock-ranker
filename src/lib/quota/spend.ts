@@ -4,6 +4,13 @@ export function startOfUtcDay(now = new Date()): Date {
   return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
 }
 
+/**
+ * Fraction of the daily spend ceiling that scheduled/system refreshes (the off-Vercel worker, crons)
+ * may use. The worker runs every few hours and shares the same ceiling as users; uncapped, it could
+ * spend the whole budget early in the UTC day and switch AI off for everyone, paying users included.
+ */
+export const SYSTEM_SPEND_SHARE = 0.5;
+
 /** Total USD spent on Claude calls since UTC midnight (across all users + cron). */
 export async function spendToday(now = new Date()): Promise<number> {
   const rows = await db().usageLog.aggregate({ _sum: { usd: true }, where: { createdAt: { gte: startOfUtcDay(now) } } });
@@ -18,7 +25,7 @@ const FRESH_KINDS = ["analysis", "batch_analysis", "committee", "portfolio_revie
 /** Kinds that use up a USER's daily fresh-AI credits. Every user-triggered paid generation must be
  *  here — deep/earnings/research were missing, so a free user could force-regenerate them without
  *  limit and burn the global spend ceiling, switching AI off for everyone. */
-const USER_FRESH_KINDS = ["analysis", "committee", "portfolio_review", "deep", "earnings", "research"];
+export const USER_FRESH_KINDS = ["analysis", "committee", "portfolio_review", "deep", "earnings", "research"];
 
 /** Fresh + batch analyses + committees run since UTC midnight (global cap counter). */
 export async function analysesToday(now = new Date()): Promise<number> {

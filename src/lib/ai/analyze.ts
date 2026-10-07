@@ -18,6 +18,15 @@ export interface AnalyzeOptions {
   onSection?: (key: keyof ModelOutput, value: unknown) => void;
   model?: string;
   effort?: "low" | "medium" | "high" | "xhigh" | "max";
+  /** Per-request budget. Vercel Hobby kills the function at 60s, so a hung call must fail first. */
+  timeoutMs?: number;
+  maxRetries?: number;
+}
+
+const DEFAULT_TIMEOUT_MS = 45_000;
+
+function requestOptions(opts: AnalyzeOptions): { timeout: number; maxRetries: number } {
+  return { timeout: opts.timeoutMs ?? DEFAULT_TIMEOUT_MS, maxRetries: opts.maxRetries ?? 0 };
 }
 
 export interface AnalyzeResult {
@@ -118,7 +127,7 @@ export async function analyzeStreaming(data: StockData, opts: AnalyzeOptions = {
   const client = anthropic();
   const streamer = opts.onSection ? new SectionStreamer(opts.onSection) : null;
 
-  const stream = client.messages.stream({ ...params, stream: true });
+  const stream = client.messages.stream({ ...params, stream: true }, requestOptions(opts));
   for await (const event of stream) {
     if (event.type === "content_block_delta" && event.delta.type === "text_delta" && streamer) {
       streamer.push(event.delta.text);
@@ -132,7 +141,7 @@ export async function analyzeStreaming(data: StockData, opts: AnalyzeOptions = {
 /** Non-streaming analysis call (used for seeding and sync cron). */
 export async function analyzeOnce(data: StockData, opts: AnalyzeOptions = {}): Promise<AnalyzeResult> {
   const params = buildRequestParams(data, opts);
-  const message = await anthropic().messages.create(params);
+  const message = await anthropic().messages.create(params, requestOptions(opts));
   return finalize(message, params.model);
 }
 

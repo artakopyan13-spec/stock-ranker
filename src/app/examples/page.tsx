@@ -6,7 +6,7 @@ import { ExamplePortfolioDashboard } from "@/components/ExamplePortfolioDashboar
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = {
   title: "See it in action",
-  description: "A full example portfolio review and live examples — no account needed.",
+  description: "A worked example portfolio review plus real analyses to explore — no account needed.",
 };
 
 export default async function ExamplesPage() {
@@ -26,7 +26,7 @@ export default async function ExamplesPage() {
   return (
     <div className="space-y-8">
       <section className="pt-4">
-        <div className="text-xs uppercase tracking-wider text-gold">Live demo</div>
+        <div className="text-xs uppercase tracking-wider text-gold">Worked example</div>
         <h1 className="text-3xl md:text-4xl font-semibold tracking-tight mt-1">See it in action — no account needed</h1>
         <p className="text-muted mt-2 max-w-2xl">
           This is a real, generated <b className="text-text">portfolio review</b> on example data — the same output you get for your own holdings. Click through its tabs (Overview, Honest review, Buy/Sell, My stocks…), hover the <span className="text-purple">?</span> marks, open a stock&rsquo;s full page.

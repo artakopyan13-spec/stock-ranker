@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import type { DeepAnalysisOutput } from "@/lib/deep/schema";
 import { ProgressLine } from "@/components/ProgressLine";
+import { ReportNotice, SlowHint, reportProvenance, type ReportMetaView, type ReportNoticeView } from "@/components/ui";
+import { fetchJson, postJson } from "@/lib/fetch-json";
 
 function toneFor(score: number | null): string {
   if (score === null) return "var(--muted)";
@@ -41,20 +43,30 @@ function Section({ title, defaultOpen = false, children }: { title: string; defa
   );
 }
 
+interface DeepResponse {
+  data?: DeepAnalysisOutput;
+  meta?: ReportMetaView;
+  notice?: ReportNoticeView;
+}
+
 export function DeepAnalysis({ symbol, signedIn = false }: { symbol: string; signedIn?: boolean }) {
   const [data, setData] = useState<DeepAnalysisOutput | null>(null);
+  const [meta, setMeta] = useState<ReportMetaView | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
-  const [notice, setNotice] = useState<string | null>(null);
-  const [upgrade, setUpgrade] = useState(false);
+  const [notice, setNotice] = useState<ReportNoticeView | null>(null);
 
   useEffect(() => {
     let live = true;
-    fetch(`/api/deep/${symbol}`)
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d: { data?: DeepAnalysisOutput } | null) => live && d?.data && setData(d.data))
-      .catch(() => undefined)
-      .finally(() => live && setLoading(false));
+    // 404 = none built yet (normal); any other failure just leaves the "Build" prompt.
+    void fetchJson<DeepResponse>(`/api/deep/${symbol}`).then((r) => {
+      if (!live) return;
+      if (r.ok && r.data?.data) {
+        setData(r.data.data);
+        setMeta(r.data.meta ?? null);
+      }
+      setLoading(false);
+    });
     return () => {
       live = false;
     };
@@ -64,20 +76,15 @@ export function DeepAnalysis({ symbol, signedIn = false }: { symbol: string; sig
     if (busy) return;
     setBusy(true);
     setNotice(null);
-    setUpgrade(false);
-    try {
-      const res = await fetch(`/api/deep/${symbol}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ force }) });
-      const body = (await res.json().catch(() => ({}))) as { data?: DeepAnalysisOutput; notice?: { reason: string; message: string }; error?: string };
-      if (body.notice) {
-        setNotice(body.notice.message);
-        setUpgrade(body.notice.reason === "user_quota");
-      } else if (body.data) setData(body.data);
-      else setNotice(body.error ?? "Couldn't build the deep analysis. Try again shortly.");
-    } catch {
-      setNotice("Something went wrong. Try again.");
-    } finally {
-      setBusy(false);
+    const r = await postJson<DeepResponse>(`/api/deep/${symbol}`, { force });
+    const body = r.data;
+    if (body?.data) {
+      setData(body.data);
+      setMeta(body.meta ?? null);
     }
+    if (body?.notice) setNotice(body.notice);
+    else if (!r.ok || !body?.data) setNotice({ reason: "error", message: r.error ?? "Couldn't build the deep analysis. Try again shortly." });
+    setBusy(false);
   }
 
   if (loading) return <div className="card p-8 text-center text-muted text-sm">Loading deep analysis…</div>;
@@ -88,11 +95,10 @@ export function DeepAnalysis({ symbol, signedIn = false }: { symbol: string; sig
         <p className="text-sm text-muted">No deep analysis yet for {symbol}. This covers moat, bottlenecks &amp; management&rsquo;s fixes, growth, valuation vs peers, catalysts, risks, bull/base/bear scenarios, and the next earnings watchlist.</p>
         <button type="button" onClick={() => void generate(false)} disabled={busy} className="btn btn-primary">{busy ? "Building…" : "Build deep analysis"}</button>
         <ProgressLine key={busy ? "on" : "off"} active={busy} estSeconds={25} label="Building" />
+        <SlowHint key={busy ? "slow-on" : "slow-off"} active={busy} />
         {notice && (
-          <div className="text-xs flex items-center justify-center gap-2 flex-wrap">
-            <span className="text-gold">{notice}</span>
-            {upgrade && <a href="/pricing" className="btn btn-primary no-underline text-xs px-3 py-1">Upgrade →</a>}
-            {!signedIn && !upgrade && <a href="/signin" className="btn btn-primary no-underline text-xs px-3 py-1">Sign in</a>}
+          <div className="text-xs flex items-center justify-center">
+            <ReportNotice notice={notice} signedIn={signedIn} className="justify-center" />
           </div>
         )}
       </div>
@@ -103,6 +109,7 @@ export function DeepAnalysis({ symbol, signedIn = false }: { symbol: string; sig
 
   return (
     <div className="space-y-4">
+      {meta?.outdated && <div className="card p-3 text-sm border-l-2 border-l-gold text-muted">Built with an older version of this report — Refresh to rebuild.</div>}
       {data.headline && <div className="card p-4 text-sm leading-relaxed">{data.headline}</div>}
 
       {/* investment scorecard */}
@@ -240,12 +247,17 @@ export function DeepAnalysis({ symbol, signedIn = false }: { symbol: string; sig
         </div>
       )}
 
+      {busy && (
+        <div className="text-center">
+          <ProgressLine active estSeconds={25} label="Rebuilding" />
+          <SlowHint active />
+        </div>
+      )}
       <div className="flex items-center justify-between gap-2 flex-wrap text-xs text-muted">
-        <span>as of {data.asOf} · built from AI knowledge · estimates labelled · verify figures · not advice</span>
-        <span className="flex items-center gap-2">
+        <span>{meta ? reportProvenance(meta) : "Built by AI"} · estimates labelled · verify figures · not advice</span>
+        <span className="flex items-center gap-2 flex-wrap">
           <button type="button" onClick={() => void generate(true)} disabled={busy} className="btn text-xs py-1 px-2">{busy ? "Refreshing…" : "↻ Refresh analysis"}</button>
-          {notice && <span className="text-gold">{notice}</span>}
-          {upgrade && <a href="/pricing" className="btn btn-primary no-underline text-xs px-2 py-1">Upgrade →</a>}
+          {notice && <ReportNotice notice={notice} signedIn={signedIn} />}
         </span>
       </div>
     </div>

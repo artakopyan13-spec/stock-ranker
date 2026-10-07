@@ -1,6 +1,6 @@
 import type { NextRequest } from "next/server";
 import { z } from "zod";
-import { deleteWatchlist, getWatchlist, setWatchlistSymbols, ownsWatchlist } from "@/lib/watchlists";
+import { canViewWatchlist, deleteWatchlist, getWatchlist, setWatchlistSymbols, ownsWatchlist } from "@/lib/watchlists";
 import { env } from "@/lib/env";
 import { currentUser, isAdmin } from "@/auth";
 
@@ -11,7 +11,10 @@ const Body = z.object({ symbols: z.array(z.string()).max(50) });
 export async function GET(_req: NextRequest, ctx: RouteContext<"/api/watchlists/[slug]">): Promise<Response> {
   const { slug } = await ctx.params;
   const w = await getWatchlist(slug);
-  return w ? Response.json({ watchlist: w }) : Response.json({ error: "not found" }, { status: 404 });
+  if (!w || !canViewWatchlist(w, await currentUser())) return Response.json({ error: "not found" }, { status: 404 });
+  const { userId: _owner, ...pub } = w; // never expose the owner's account id
+  void _owner;
+  return Response.json({ watchlist: pub });
 }
 
 async function requireOwner(slug: string): Promise<Response | null> {

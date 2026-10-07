@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseHoldings, parseLine } from "@/lib/portfolio/parse";
+import { parseHoldings, parseHoldingsWithStats, parseLine } from "@/lib/portfolio/parse";
 
 describe("portfolio paste parser", () => {
   it("parses shares", () => {
@@ -36,5 +36,16 @@ describe("portfolio paste parser", () => {
   it("splits a single comma-separated line", () => {
     const holdings = parseHoldings("AAPL 10, MSFT 5, NVDA 2");
     expect(holdings.map((h) => h.symbol)).toEqual(["AAPL", "MSFT", "NVDA"]);
+  });
+
+  it("accepts a $cashtag and prefers the all-caps ticker", () => {
+    expect(parseLine("$AAPL 10")?.symbol).toBe("AAPL");
+    expect(parseLine("Apple AAPL 10")?.symbol).toBe("AAPL");
+  });
+
+  it("counts lines it couldn't read", () => {
+    const r = parseHoldingsWithStats("NVDA 10\n???\n# comment\n\n12345");
+    expect(r.holdings.map((h) => h.symbol)).toEqual(["NVDA"]);
+    expect(r.skipped).toBe(2);
   });
 });

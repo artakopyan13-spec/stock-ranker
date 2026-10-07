@@ -46,6 +46,17 @@ export async function getWatchlist(slug: string): Promise<WatchlistSummary | nul
   return w ? toSummary(w) : null;
 }
 
+/**
+ * Who may READ a watchlist: anyone for public or seeded/system lists (userId null), otherwise only
+ * the owner or an admin. Private lists are the default, and slugs are guessable (name + "-2"…), so
+ * every read path — page, API, rankings — must check this.
+ */
+export function canViewWatchlist(w: { isPublic: boolean; userId: string | null }, user: { id?: string | null; role?: string | null } | null | undefined): boolean {
+  if (w.isPublic || w.userId === null) return true;
+  if (!user?.id) return false;
+  return w.userId === user.id || user.role === "admin";
+}
+
 /** True when the watchlist belongs to the user (or the user is allowed to edit a global one as admin). */
 export async function ownsWatchlist(slug: string, userId: string | null, isAdmin = false): Promise<boolean> {
   if (!userId) return false;
@@ -65,18 +76,32 @@ async function ensureTickers(symbols: string[]): Promise<void> {
   }
 }
 
+function isUniqueViolation(err: unknown): boolean {
+  return typeof err === "object" && err !== null && (err as { code?: unknown }).code === "P2002";
+}
+
 export async function createWatchlist(name: string, symbols: string[], userId: string | null = null): Promise<WatchlistSummary> {
   const prisma = db();
   const clean = normalizeSymbols(symbols);
-  let slug = slugify(name);
+  const base = slugify(name);
+  let slug = base;
   let n = 1;
-  while (await prisma.watchlist.findUnique({ where: { slug } })) slug = `${slugify(name)}-${++n}`;
+  while (await prisma.watchlist.findUnique({ where: { slug } })) slug = `${base}-${++n}`;
   await ensureTickers(clean);
-  const w = await prisma.watchlist.create({
-    data: { slug, name: name.trim() || slug, userId, items: { create: clean.map((symbol, position) => ({ symbol, position })) } },
-    include: { items: { orderBy: { position: "asc" } } },
-  });
-  return toSummary(w);
+  // Check-then-write: a concurrent create can take the same slug between the lookup and the insert,
+  // so on a unique-constraint hit retry with a random suffix instead of surfacing a 500.
+  for (let attempt = 0; ; attempt++) {
+    try {
+      const w = await prisma.watchlist.create({
+        data: { slug, name: name.trim() || slug, userId, items: { create: clean.map((symbol, position) => ({ symbol, position })) } },
+        include: { items: { orderBy: { position: "asc" } } },
+      });
+      return toSummary(w);
+    } catch (err) {
+      if (!isUniqueViolation(err) || attempt >= 3) throw err;
+      slug = `${base}-${Math.random().toString(36).slice(2, 7)}`;
+    }
+  }
 }
 
 export async function setWatchlistSymbols(slug: string, symbols: string[]): Promise<WatchlistSummary | null> {

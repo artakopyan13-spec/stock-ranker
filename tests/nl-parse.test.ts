@@ -18,7 +18,11 @@ describe("command-bar heuristic (zero-cost fast path)", () => {
   it("does NOT fire on lowercase words or natural language", () => {
     expect(heuristicIntent("cash machines under 20x FCF", universe)).toBeNull();
     expect(heuristicIntent("the next nvidia", universe)).toBeNull();
-    expect(heuristicIntent("compare NVDA and AMD", universe)).toBeNull(); // 'compare'/'and' aren't tickers -> LLM
+  });
+
+  it("handles the natural compare phrasings for free (the command bar's own example used to cost an AI call)", () => {
+    expect(heuristicIntent("compare NVDA and AMD", universe)?.tickers).toEqual(["NVDA", "AMD"]);
+    expect(heuristicIntent("NVDA vs. AMD", universe)?.kind).toBe("compare");
   });
 
   it("compares multiple ticker tokens", () => {

@@ -113,6 +113,8 @@ export async function truncateAll(): Promise<void> {
   const { db } = await import("@/lib/db");
   const p = db();
   await p.usageLog.deleteMany();
+  await p.stripeEvent.deleteMany();
+  await p.processedCheckout.deleteMany();
   await p.change.deleteMany();
   await p.rateLimit.deleteMany();
   await p.setting.deleteMany();

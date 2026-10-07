@@ -4,8 +4,10 @@ import { db } from "@/lib/db";
 import { startOfUtcDay } from "@/lib/quota/spend";
 import { setUserBanned, setUserQuota } from "@/lib/admin-actions";
 import { ago } from "@/lib/format";
+import { USER_FRESH_KINDS } from "@/lib/quota/spend";
 
 export const dynamic = "force-dynamic";
+
 
 export default async function AdminUsersPage() {
   const admin = await currentUser();
@@ -14,7 +16,7 @@ export default async function AdminUsersPage() {
   const prisma = db();
   const users = await prisma.user.findMany({ orderBy: { createdAt: "desc" }, take: 200 });
   const since = startOfUtcDay();
-  const usageByUser = await prisma.usageLog.groupBy({ by: ["userId"], _count: true, _sum: { usd: true }, where: { kind: "analysis", createdAt: { gte: since } } });
+  const usageByUser = await prisma.usageLog.groupBy({ by: ["userId"], _count: true, _sum: { usd: true }, where: { kind: { in: USER_FRESH_KINDS }, createdAt: { gte: since } } });
   const usage = new Map(usageByUser.map((u) => [u.userId, { count: u._count, usd: u._sum.usd ?? 0 }]));
   return (
     <div className="space-y-4">

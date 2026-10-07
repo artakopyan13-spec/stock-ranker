@@ -19,6 +19,18 @@ interface Props {
   onBusyChange?: (busy: boolean) => void;
 }
 
+/** Why a non-streaming response failed: the server's JSON `error`, else a plain reading of the status
+ *  (Vercel's 504/413/429 pages are HTML/plain text, never JSON). */
+async function failureMessage(res: Response): Promise<string> {
+  const isJson = (res.headers.get("content-type") ?? "").includes("application/json");
+  const b = isJson ? ((await res.json().catch(() => null)) as { error?: string } | null) : null;
+  if (b?.error) return b.error;
+  if (res.status === 504) return "The assistant took too long and timed out. Try again.";
+  if (res.status === 429) return "Too many requests right now. Wait a moment and try again.";
+  if (res.status === 401) return "Please sign in again.";
+  return `The assistant couldn't answer (${res.status}). Try again in a moment.`;
+}
+
 /** Generic grounded-chat panel driving an SSE endpoint (copilot + portfolio share it). */
 export function ChatPanel({ endpoint, body, historyUrl, suggestions = [], placeholder = "Ask a question…", emptyHint, signedIn = true, onBusyChange }: Props) {
   const [messages, setMessages] = useState<ChatMsg[]>([]);
@@ -37,11 +49,13 @@ export function ChatPanel({ endpoint, body, historyUrl, suggestions = [], placeh
     if (!historyUrl) return;
     let alive = true;
     void fetch(historyUrl)
-      .then((r) => (r.ok ? r.json() : { messages: [] }))
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
       .then((d: { messages?: ChatMsg[] }) => {
         if (alive && d.messages?.length) setMessages(d.messages);
       })
-      .catch(() => undefined);
+      .catch(() => {
+        if (alive) setNotice("Couldn't load your earlier messages — new ones still work.");
+      });
     return () => {
       alive = false;
     };
@@ -62,13 +76,11 @@ export function ChatPanel({ endpoint, body, historyUrl, suggestions = [], placeh
       setMessages((m) => [...m, { role: "user", content: q }, { role: "assistant", content: "" }]);
       try {
         const res = await fetch(endpoint, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...body, message: q }) });
-        if (!res.ok || !res.body) {
-          const b = (await res.json().catch(() => ({}))) as { error?: string };
-          throw new Error(b.error ?? `HTTP ${res.status}`);
-        }
+        if (!res.ok || !res.body) throw new Error(await failureMessage(res));
         const reader = res.body.getReader();
         const decoder = new TextDecoder();
         let buffer = "";
+        let finished = false; // saw done / notice / error — anything else means the stream was cut
         for (;;) {
           const { value, done } = await reader.read();
           if (done) break;
@@ -79,7 +91,12 @@ export function ChatPanel({ endpoint, body, historyUrl, suggestions = [], placeh
             buffer = buffer.slice(idx + 2);
             const dataLine = frame.split("\n").find((l) => l.startsWith("data: "));
             if (!dataLine) continue;
-            const payload = JSON.parse(dataLine.slice(6)) as { type: string; text?: string; message?: string; reason?: string; remainingToday?: number };
+            let payload: { type: string; text?: string; message?: string; reason?: string; remainingToday?: number };
+            try {
+              payload = JSON.parse(dataLine.slice(6)) as typeof payload;
+            } catch {
+              continue; // a malformed frame shouldn't kill the whole reply
+            }
             if (payload.type === "delta") {
               setMessages((m) => {
                 const copy = [...m];
@@ -87,14 +104,18 @@ export function ChatPanel({ endpoint, body, historyUrl, suggestions = [], placeh
                 return copy;
               });
             } else if (payload.type === "done") {
+              finished = true;
               if (typeof payload.remainingToday === "number") setRemaining(payload.remainingToday);
             } else if (payload.type === "notice" || payload.type === "error") {
+              finished = true;
               setNotice(payload.message ?? "The assistant is unavailable.");
               setUpgrade(payload.reason === "user_quota");
               setMessages((m) => m.slice(0, -1)); // drop the empty assistant bubble
             }
           }
         }
+        // The function was killed (60s cap) or the connection dropped mid-reply.
+        if (!finished) throw new Error("The reply was cut off. Try asking again.");
       } catch (err) {
         setNotice(err instanceof Error ? err.message : "Something went wrong.");
         setMessages((m) => (m.length && m[m.length - 1].content === "" ? m.slice(0, -1) : m));

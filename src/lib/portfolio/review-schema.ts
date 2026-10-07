@@ -219,6 +219,9 @@ export interface PortfolioReviewV2 {
   unverified: string;
   generatedAt: string;
   model: string;
+  /** Sections whose generation call failed or timed out (e.g. "Portfolio summary", "Positions: AAPL, MSFT").
+   *  Absent on reviews stored before this existed. Drives the "regenerate" banner. */
+  failedSections?: string[];
 }
 
 export function isReviewV2(v: unknown): v is PortfolioReviewV2 {

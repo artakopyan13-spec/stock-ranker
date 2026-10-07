@@ -34,7 +34,7 @@ export default function HowItWorksPage() {
           It turns live market data into a full analyst-style report through Claude, with one rule above all: never invent a number. Every figure is sourced and dated, the judgment is the model&rsquo;s, and it&rsquo;s honest about whether it&rsquo;s been right.
         </p>
         <div className="mt-5 flex gap-2 flex-wrap">
-          <Link href="/examples" className="btn btn-primary no-underline">See a live example</Link>
+          <Link href="/examples" className="btn btn-primary no-underline">See a worked example</Link>
           <Link href="/" className="btn no-underline">Search a stock</Link>
         </div>
       </section>

@@ -6,6 +6,18 @@ import type { Analysis } from "@/lib/analysis/schema";
 import type { RankingRow } from "@/lib/rankings-sort";
 import { AnalysisView } from "@/components/AnalysisView";
 import { Scoreboard } from "@/components/Scoreboard";
+import { fetchJson, postJson } from "@/lib/fetch-json";
+
+/** First `event: error` or `event: notice` (quota/cap denial) in an SSE transcript, if any. */
+function streamProblem(text: string): { kind: "error" | "notice"; message: string } | null {
+  const m = text.match(/event: (error|notice)\ndata: (.*)\n/);
+  if (!m) return null;
+  try {
+    return { kind: m[1] as "error" | "notice", message: (JSON.parse(m[2]) as { message?: string }).message ?? "failed" };
+  } catch {
+    return { kind: m[1] as "error" | "notice", message: "failed" };
+  }
+}
 
 /** Create a watchlist from a comma/space separated ticker list. */
 export function CreateWatchlist({ disabled }: { disabled?: boolean }) {
@@ -21,11 +33,13 @@ export function CreateWatchlist({ disabled }: { disabled?: boolean }) {
         e.preventDefault();
         setBusy(true);
         setError(null);
-        const res = await fetch("/api/watchlists", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name, symbols: symbols.split(/[\s,;]+/) }) });
-        const body = (await res.json()) as { watchlist?: { slug: string }; error?: string };
-        setBusy(false);
-        if (body.watchlist) router.push(`/w/${body.watchlist.slug}`);
-        else setError(body.error ?? "Failed");
+        try {
+          const res = await postJson<{ watchlist?: { slug: string } }>("/api/watchlists", { name, symbols: symbols.split(/[\s,;]+/) });
+          if (res.data?.watchlist) router.push(`/w/${res.data.watchlist.slug}`);
+          else setError(res.error ?? "Couldn't create the watchlist. Try again.");
+        } finally {
+          setBusy(false);
+        }
       }}
     >
       <div className="text-sm font-semibold">New watchlist</div>
@@ -51,33 +65,46 @@ export function WatchlistTools({ slug, symbols, rows, demo, canEdit = true }: { 
   const [selected, setSelected] = useState<string[]>([]);
   const [compare, setCompare] = useState<Analysis[]>([]);
   const [loadingCompare, setLoadingCompare] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const save = async () => {
     setSaving(true);
-    await fetch(`/api/watchlists/${slug}`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ symbols: text.split(/[\s,;]+/) }) });
-    setSaving(false);
-    router.refresh();
+    setError(null);
+    try {
+      const res = await fetchJson(`/api/watchlists/${slug}`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ symbols: text.split(/[\s,;]+/) }) });
+      if (!res.ok) setError(res.error);
+      else router.refresh();
+    } finally {
+      setSaving(false);
+    }
   };
 
   const analyzeAll = async (onlyMissing: boolean) => {
     const targets = rows.filter((r) => !onlyMissing || !r.analysisId || r.stale).map((r) => r.symbol);
+    const failed: string[] = [];
+    let stopped: string | null = null;
     for (let i = 0; i < targets.length; i++) {
       const symbol = targets[i];
       setProgress(`Analyzing ${symbol} (${i + 1}/${targets.length})…`);
       try {
         const res = await fetch("/api/analyze", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ticker: symbol, force: !onlyMissing }) });
-        const text = await res.text();
-        if (text.includes("event: error")) {
-          const m = text.match(/event: error\ndata: (.*)\n/);
-          const msg = m ? (JSON.parse(m[1]) as { message: string }).message : "error";
-          setProgress(`${symbol}: ${msg}`);
-          if (/cap reached/i.test(msg)) break;
+        if (!res.ok) {
+          failed.push(symbol);
+          continue;
         }
-      } catch (err) {
-        setProgress(`${symbol}: ${err instanceof Error ? err.message : "failed"}`);
+        const problem = streamProblem(await res.text());
+        // A notice is a deny (daily quota, sign-in, global cap): every later ticker would get the
+        // same answer, so stop and say why instead of looping through them all.
+        if (problem?.kind === "notice" || (problem && /cap reached|quota|limit/i.test(problem.message))) {
+          stopped = `Stopped at ${symbol}: ${problem.message}`;
+          break;
+        }
+        if (problem) failed.push(symbol);
+      } catch {
+        failed.push(symbol);
       }
     }
-    setProgress("Done.");
+    setProgress(stopped ?? (failed.length ? `Done — couldn't analyze ${failed.join(", ")}. Try those again in a moment.` : "Done."));
     router.refresh();
   };
 
@@ -85,28 +112,31 @@ export function WatchlistTools({ slug, symbols, rows, demo, canEdit = true }: { 
     setAnalyzing(symbol);
     try {
       const res = await fetch("/api/analyze", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ticker: symbol }) });
-      const text = await res.text();
-      if (text.includes("event: error") || text.includes("event: notice")) {
-        const m = text.match(/event: (?:error|notice)\ndata: (.*)\n/);
-        if (m) setProgress(`${symbol}: ${(JSON.parse(m[1]) as { message: string }).message}`);
+      if (!res.ok) setProgress(`${symbol}: the analysis failed (${res.status}). Try again in a moment.`);
+      else {
+        const problem = streamProblem(await res.text());
+        if (problem) setProgress(`${symbol}: ${problem.message}`);
       }
-    } catch (err) {
-      setProgress(`${symbol}: ${err instanceof Error ? err.message : "failed"}`);
+    } catch {
+      setProgress(`${symbol}: network error — check your connection and try again.`);
+    } finally {
+      setAnalyzing(null);
     }
-    setAnalyzing(null);
     router.refresh();
   };
 
   const loadCompare = async () => {
     setLoadingCompare(true);
-    const out: Analysis[] = [];
-    for (const s of selected) {
-      const res = await fetch(`/api/analysis/${s}`);
-      const body = (await res.json()) as { analysis?: Analysis };
-      if (body.analysis) out.push(body.analysis);
+    setError(null);
+    try {
+      const results = await Promise.all(selected.map((s) => fetchJson<{ analysis?: Analysis }>(`/api/analysis/${s}`)));
+      const out = results.flatMap((r) => (r.data?.analysis ? [r.data.analysis] : []));
+      const missing = selected.filter((_s, i) => !results[i].data?.analysis);
+      if (missing.length) setError(`No saved analysis for ${missing.join(", ")} — analyze ${missing.length === 1 ? "it" : "them"} first.`);
+      setCompare(out);
+    } finally {
+      setLoadingCompare(false);
     }
-    setCompare(out);
-    setLoadingCompare(false);
   };
 
   return (
@@ -125,6 +155,7 @@ export function WatchlistTools({ slug, symbols, rows, demo, canEdit = true }: { 
           </button>
         </div>
         {progress && <div className="text-sm text-muted">{progress}</div>}
+        {error && <div className="text-sm text-red">{error}</div>}
         {readOnly && <div className="text-xs text-dim">{demo ? "Demo mode: watchlists are read-only." : "You can view and compare this watchlist. Sign in as its owner to edit or analyze."}</div>}
       </div>
 

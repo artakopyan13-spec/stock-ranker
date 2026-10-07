@@ -35,3 +35,31 @@ describe("brokerage activity CSV", () => {
     expect(r.endDate).toBe("9/15/2026");
   });
 });
+
+describe("brokerage activity CSV — ordering, fees, splits, unmatched sells", () => {
+  // Oldest-first export: M/D/YYYY strings would mis-sort "10/1" before "9/30" lexically.
+  const CSV2 = `"Activity Date","Process Date","Settle Date","Instrument","Description","Trans Code","Quantity","Price","Amount"
+"9/30/2026","9/30/2026","10/1/2026","JVA","Coffee Holding Co","Buy","10","$5.00","($50.00)"
+"10/1/2026","10/1/2026","10/2/2026","JVA","Forward Split","SPL","10","",""
+"10/2/2026","10/2/2026","10/3/2026","JVA","Coffee Holding Co","Sell","5","$3.00","$15.00"
+"10/3/2026","10/3/2026","10/4/2026","TSLA","Tesla","Sell","2","$300.00","$600.00"`;
+  const r = parseActivityCsv(CSV2);
+
+  it("uses the latest parsed date as the end date", () => {
+    expect(r.endDate).toBe("10/3/2026");
+  });
+
+  it("doesn't drop a buy whose description contains 'fee'", () => {
+    expect(r.fees).toBe(0);
+  });
+
+  it("applies a split to the open lots (cost basis unchanged)", () => {
+    // 10 sh @ $50 total → 20 sh; sold 5 at $15 (cost 12.5) → 15 sh left, cost 37.5.
+    expect(r.holdings).toEqual([{ symbol: "JVA", shares: 15, avgCost: 2.5, valueUsd: null }]);
+  });
+
+  it("doesn't book an unmatched sell as pure gain", () => {
+    expect(r.realized).toBe(2.5);
+    expect(r.warnings?.some((w) => w.startsWith("TSLA"))).toBe(true);
+  });
+});

@@ -25,6 +25,7 @@ export async function GET(req: NextRequest): Promise<Response> {
     const matches = (await searchSymbols(q)).filter((m) => m.type === "EQUITY" || m.type === "ETF");
     return Response.json({ matches });
   } catch (err) {
-    return Response.json({ matches: [], error: err instanceof Error ? err.message : "search failed" }, { status: 502 });
+    console.error("[search] symbol lookup failed:", err instanceof Error ? err.message : err);
+    return Response.json({ matches: [], error: "Symbol search is unavailable right now. Try the ticker itself, e.g. NVDA." }, { status: 502 });
   }
 }

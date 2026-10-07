@@ -74,13 +74,16 @@ export function intentToResult(intent: Intent): CommandResult {
 
 const TICKER_SHAPE = /^[A-Z][A-Z0-9.\-]{0,5}$/;
 
+/** Connective words in "compare NVDA and AMD" / "NVDA vs. AMD" that aren't tickers. */
+const COMPARE_WORDS = /(^|\s)(compare|vs\.?|versus|and|&)(?=\s|$)/gi;
+
 /**
  * Zero-cost fast path (no model call): a bare/`$`-prefixed ticker jumps to analyze/compare.
  * A token counts as a ticker if it's already in the universe, OR the user signalled it's a symbol
  * by writing it uppercase or with `$` and it has ticker shape (so lowercase words don't false-trigger).
  */
 export function heuristicIntent(input: string, universe: Set<string>): Intent | null {
-  const cleaned = input.trim().replace(/[,\s]+/g, " ");
+  const cleaned = input.trim().replace(/,/g, " ").replace(COMPARE_WORDS, " ").replace(/\s+/g, " ").trim();
   const rawTokens = cleaned.split(" ").filter(Boolean);
   if (rawTokens.length === 0 || rawTokens.length > 5) return null;
   const tickerLike = (raw: string): string | null => {

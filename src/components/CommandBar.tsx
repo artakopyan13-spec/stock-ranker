@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { SymbolMatch } from "@/lib/data/types";
+import { fetchJson, postJson } from "@/lib/fetch-json";
 
 type CommandResult = { action: "navigate"; href: string; label: string } | { action: "answer"; reply: string };
 
@@ -16,6 +17,8 @@ export function CommandBar({ autoFocus = false }: { autoFocus?: boolean }) {
   const router = useRouter();
   const [q, setQ] = useState("");
   const [matches, setMatches] = useState<SymbolMatch[]>([]);
+  /** The query `matches` belong to — Enter only trusts suggestions for what's typed now. */
+  const [matchesFor, setMatchesFor] = useState("");
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
   const [busy, setBusy] = useState(false);
@@ -26,23 +29,25 @@ export function CommandBar({ autoFocus = false }: { autoFocus?: boolean }) {
   useEffect(() => {
     if (timer.current) clearTimeout(timer.current);
     const query = q.trim();
+    // Abort the previous lookup so a slow, stale response can't overwrite the current one.
+    const ctrl = new AbortController();
     timer.current = setTimeout(async () => {
       if (query.length < 1 || query.includes(" ")) {
         setMatches([]);
+        setMatchesFor(query);
         setOpen(false);
         return;
       }
-      try {
-        const res = await fetch(`/api/search?q=${encodeURIComponent(query)}`);
-        const body = (await res.json()) as { matches: SymbolMatch[] };
-        setMatches(body.matches.slice(0, 6));
-        setActive(0);
-        setOpen(body.matches.length > 0);
-      } catch {
-        setMatches([]);
-      }
+      const res = await fetchJson<{ matches?: SymbolMatch[] }>(`/api/search?q=${encodeURIComponent(query)}`, { signal: ctrl.signal });
+      if (ctrl.signal.aborted) return;
+      const list = (res.data?.matches ?? []).slice(0, 6);
+      setMatches(list);
+      setMatchesFor(query);
+      setActive(0);
+      setOpen(list.length > 0);
     }, 220);
     return () => {
+      ctrl.abort();
       if (timer.current) clearTimeout(timer.current);
     };
   }, [q]);
@@ -59,29 +64,21 @@ export function CommandBar({ autoFocus = false }: { autoFocus?: boolean }) {
     setAnswer(null);
     setBusy(true);
     setStatus("Thinking…");
-    try {
-      const res = await fetch("/api/command", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ q: query }) });
-      const body = (await res.json()) as { result?: CommandResult; error?: string };
-      if (body.error) {
-        setAnswer(body.error);
-      } else if (body.result?.action === "navigate") {
-        setStatus(body.result.label + "…");
-        router.push(body.result.href);
-        return;
-      } else if (body.result?.action === "answer") {
-        setAnswer(body.result.reply);
-      }
-    } catch {
-      setAnswer("Something went wrong. Try a ticker like AAPL.");
-    } finally {
-      setBusy(false);
-      setStatus(null);
+    const res = await postJson<{ result?: CommandResult }>("/api/command", { q: query });
+    const result = res.data?.result;
+    if (result?.action === "navigate") {
+      setStatus(result.label + "…");
+      router.push(result.href);
+    } else {
+      setAnswer(result?.action === "answer" ? result.reply : (res.error ?? "Something went wrong. Try a ticker like AAPL."));
     }
+    setBusy(false);
+    if (result?.action !== "navigate") setStatus(null);
   };
 
   const submit = () => {
     // A highlighted single-ticker suggestion wins; otherwise treat the text as a command.
-    if (open && matches[active] && !q.includes(" ")) {
+    if (open && matches[active] && matchesFor === q.trim() && !q.includes(" ")) {
       goTicker(matches[active].symbol);
     } else {
       void runCommand(q);

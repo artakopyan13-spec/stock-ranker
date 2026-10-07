@@ -47,6 +47,10 @@ export interface SkillCard {
   watch?: boolean;
   open?: boolean;
   no_trends_reason?: string;
+  /** The AI judgment for this card wasn't generated: show "—" instead of a rating/call. */
+  missing?: boolean;
+  /** No bear/base/bull prices were produced: hide the 12-month view instead of drawing $0. */
+  no_forecast?: boolean;
 }
 export interface SkillZone {
   t: string;
@@ -71,7 +75,7 @@ export interface SkillEvent {
 }
 export interface SkillData {
   meta: { title?: string; eyebrow?: string; headline: string; thesis?: string; build_date: string; price_date: string; new_cash: number; today?: string };
-  positions: Array<{ t: string; name?: string; shares: number; avg: number; price: number; color?: string }>;
+  positions: Array<{ t: string; name?: string; shares: number; avg: number; price: number; color?: string; /** no average cost given — hide P/L */ no_cost?: boolean }>;
   themes?: Array<{ label: string; pct: number; sub?: string; tone?: string }>;
   honest_read?: string;
   alltime?: { account_value: number; net_deposits: number; realized?: number; deposits_note?: string; value_note?: string; realized_note?: string; source_note?: string; closed?: Array<{ t: string; pl: number; note?: string }>; insights?: string[]; footnote?: string };
@@ -106,6 +110,7 @@ interface Row {
   plp: number;
   c: string;
   w: number;
+  nc: boolean; // no cost basis given — P/L is unknown, not zero
 }
 
 const PALETTE = ["#5AC8C8", "#3FA3A3", "#7C9A82", "#8E86D8", "#6F68B8", "#C9A35C", "#A8843F", "#4E7FB8", "#B07A6E", "#9CC7E6", "#D59A8C", "#B3ADEA", "#DCB86F", "#6FA08A"];
@@ -115,6 +120,32 @@ const ETYPE: Record<string, string> = { earnings: "Earnings", dividend: "Dividen
 
 function esc(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#x27;");
+}
+
+/**
+ * Model text → safe HTML. Allowlist, not blocklist: escape EVERYTHING (existing entities like
+ * &rsquo; are kept), then re-enable only bare <b>, <i> and <br>. Safe in text and quoted attributes.
+ */
+function cleanText(s: string): string {
+  return s
+    .replace(/&(?!(?:#\d{1,7}|#x[0-9a-f]{1,6}|[a-z][a-z0-9]{1,31});)/gi, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#x27;")
+    .replace(/&lt;(\/?)(b|i)&gt;/gi, (_m, slash: string, tag: string) => `<${slash}${tag.toLowerCase()}>`)
+    .replace(/&lt;br\s*\/?&gt;/gi, "<br>");
+}
+
+/** Values interpolated into class/style attributes: a colour or a bare tone word, nothing else. */
+const SAFE_STYLE = /^(#[0-9a-f]{3,8}|[a-z][a-z-]{0,20})?$/i;
+
+/** Deep-cleans every string in the data (model-produced) before any of it is interpolated. */
+function cleanData<T>(v: T, key = ""): T {
+  if (typeof v === "string") return ((key === "tone" || key === "color") && !SAFE_STYLE.test(v) ? "" : cleanText(v)) as T;
+  if (Array.isArray(v)) return v.map((x) => cleanData(x, key)) as T;
+  if (v && typeof v === "object") return Object.fromEntries(Object.entries(v).map(([k, x]) => [cleanText(k), cleanData(x, k)])) as T;
+  return v;
 }
 function fmtNum(x: number, d = 0): string {
   return x.toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: d });
@@ -139,7 +170,10 @@ function applyFmt(fmt: string | undefined, v: number): string {
 }
 
 /** One dashboard build. All mutable state (section counter, used glossary terms) is local. */
-export function buildSkillDashboard(d: SkillData): string {
+export function buildSkillDashboard(raw: SkillData): string {
+  // Everything below may interpolate data strings raw — they are all pre-escaped here. Glossary
+  // values are escaped at their use sites (esc), so only their keys are cleaned.
+  const d: SkillData = { ...cleanData({ ...raw, glossary_extra: undefined }), glossary_extra: Object.fromEntries(Object.entries(raw.glossary_extra ?? {}).map(([k, v]) => [cleanText(k), v])) };
   const GL: Record<string, string> = { ...GLOSSARY, ...(d.glossary_extra ?? {}) };
   const KEYS = Object.keys(GL).sort((a, b) => b.length - a.length);
   const usedTerms: string[] = [];
@@ -176,15 +210,11 @@ export function buildSkillDashboard(d: SkillData): string {
     const tip = esc(ks.map((k) => `${k} — ${GL[k]}`).join("  •  "));
     return `${label}<span class="q ${cls}" tabindex="0" role="note" aria-label="${tip}" data-tip="${tip}">?</span>`;
   };
-  const sanitize = (t: string): string =>
-    t
-      .replace(/<\s*(script|style|iframe|object|embed|link|meta|form)\b[^>]*>[\s\S]*?<\s*\/\s*\1\s*>/gi, "")
-      .replace(/<\s*(script|style|iframe|object|embed|link|meta|form)\b[^>]*\/?>/gi, "")
-      .replace(/\son\w+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, "")
-      .replace(/(href|src)\s*=\s*(["']?)\s*javascript:[^"'>\s]*/gi, "$1=$2#");
+  // Data text is already escaped by cleanData; rich() only expands {{?term|shown}} glossary markers
+  // (and passes through the app's own static HTML, e.g. section subtitles).
   const rich = (text: string | null | undefined): string => {
     if (text === null || text === undefined) return "";
-    return sanitize(String(text)).replace(/\{\{\?([^}]+)\}\}/g, (_m, g1: string) => {
+    return String(text).replace(/\{\{\?([^}]+)\}\}/g, (_m, g1: string) => {
       const [term, shown] = g1.includes("|") ? [g1.slice(0, g1.indexOf("|")), g1.slice(g1.indexOf("|") + 1)] : [g1, ""];
       return (shown || term).trim() + qmark(term.trim(), "i");
     });
@@ -210,12 +240,15 @@ export function buildSkillDashboard(d: SkillData): string {
   };
 
   const secScore = (rows: Row[], TV: number, TC: number, themes: NonNullable<SkillData["themes"]>): string => {
-    const pl = TV - TC;
+    // P/L only over positions with a real cost basis; with none, show "—" rather than a fake +$0.
+    const costed = rows.filter((r) => !r.nc);
+    const pl = costed.reduce((s, r) => s + r.val, 0) - TC;
     const col = pl >= 0 ? "var(--green)" : "var(--red)";
+    const missingCost = rows.length - costed.length;
     const cells: Array<[string, string, string, string]> = [
       ["Market value", money(TV), `${rows.length} positions`, ""],
-      ["Cost basis", money(TC), "shares × your averages", ""],
-      ["Unrealized P/L", sgm(pl), sgp(TC ? (pl / TC) * 100 : 0), col],
+      costed.length ? ["Cost basis", money(TC), missingCost ? `${missingCost} position(s) without an average cost` : "shares × your averages", ""] : ["Cost basis", "—", "no average costs given", ""],
+      costed.length ? ["Unrealized P/L", sgm(pl), sgp(TC ? (pl / TC) * 100 : 0), col] : ["Unrealized P/L", "—", "add average costs to see it", ""],
     ];
     for (const th of themes.slice(0, 2)) cells.push([th.label, `${th.pct.toFixed(1)}%`, th.sub ?? "", `var(--${th.tone ?? "cyan"})`]);
     let out = "";
@@ -270,9 +303,9 @@ export function buildSkillDashboard(d: SkillData): string {
       acc += L;
     });
     const legend = rows.map((r) => `<div class="lg"><span class="sw" style="background:${r.c}"></span><b>${r.t}</b><span class="mut">${r.w.toFixed(1)}%</span><span class="mut r">${money(r.val)}</span></div>`).join("");
-    const mx = Math.max(...rows.map((r) => Math.abs(r.pl))) || 1;
+    const mx = Math.max(...rows.filter((r) => !r.nc).map((r) => Math.abs(r.pl))) || 1;
     let pl = "";
-    [...rows].sort((a, b) => b.pl - a.pl).forEach((r, j) => {
+    rows.filter((r) => !r.nc).sort((a, b) => b.pl - a.pl).forEach((r, j) => {
       const col = r.pl >= 0 ? "var(--green)" : "var(--red)";
       pl += `<div class="hb"><span><b>${r.t}</b></span><span class="ht"><span class="hf" style="width:${Math.max(2, (Math.abs(r.pl) / mx) * 100).toFixed(1)}%;background:${col};animation-delay:${(0.1 + j * 0.07).toFixed(2)}s"></span></span><span class="hv" style="color:${col}">${sgm(r.pl)} <i>${sgp(r.plp)}</i></span></div>`;
     });
@@ -280,7 +313,7 @@ export function buildSkillDashboard(d: SkillData): string {
     return h2("Where the money is", "", "Weight") + `<div class="grid2"><div class="panel pad"><div class="donutw">
  <svg viewBox="0 0 120 120" width="190" height="190" style="flex:none"><circle cx="60" cy="60" r="50" fill="none" stroke="#1B2230" stroke-width="15"/>${segs}
  <text x="60" y="57" class="dv">${money(TV)}</text><text x="60" y="69" class="dc">TOTAL VALUE</text></svg><div class="lgw">${legend}</div></div><div class="chips">${ch}</div></div>
- <div class="panel pad"><div class="cap">${T("Unrealized P/L")} by position</div>${pl}<p class="mut" style="font-size:12.5px;margin:12px 0 0">${rich(note)}</p></div></div>`;
+ <div class="panel pad"><div class="cap">${T("Unrealized P/L")} by position</div>${pl || '<p class="mut" style="font-size:13px">Add average costs to your holdings to see profit and loss.</p>'}<p class="mut" style="font-size:12.5px;margin:12px 0 0">${rich(note)}</p></div></div>`;
   };
 
   const secCalendar = (cal: NonNullable<SkillData["calendar"]>, macro: NonNullable<SkillData["macro"]>, title: string): string => {
@@ -378,7 +411,7 @@ export function buildSkillDashboard(d: SkillData): string {
   const zoneHtml = (z: SkillZone, W: Record<string, Row>, bare = false): string => {
     const r = W[z.t];
     const px = z.price != null ? z.price : r ? r.p : null;
-    const avg = r ? r.a : null;
+    const avg = r && !r.nc ? r.a : null;
     const lv: Array<[string, number | null | undefined]> = [["stop", z.stop_below], ["sbuy", z.strong_buy_below], ["buy", z.buy_below], ["trim", z.trim_above], ["sell", z.sell_above]];
     const nums = lv.map(([, v]) => v).filter((v): v is number => v != null).concat([px, avg].filter((x): x is number => !!x));
     const lo = Math.min(...nums) * 0.88, hi = Math.max(...nums) * 1.12;
@@ -471,7 +504,7 @@ export function buildSkillDashboard(d: SkillData): string {
       const c = CT[r.t] ?? ({} as Partial<SkillCard>);
       const [vd, vc] = zoneStatus(Z[r.t], r.p);
       const col = r.pl >= 0 ? "var(--green)" : "var(--red)";
-      trs += `<tr><td><label class="go" for="tab-s-${sid(r.t)}"><b style="color:${r.c}">${r.t}</b> →</label></td><td>${price(r.p)}</td><td>${r.w.toFixed(1)}%</td><td style="color:${col}">${sgm(r.pl)} <span class="mut">${sgp(r.plp)}</span></td><td><b style="color:var(--gold)">${c.rate ?? ""}</b>/10</td><td><span class="tag ${TONE[c.tone ?? "y"] ?? "y"}">${c.tag ?? ""}</span></td><td><span class="vd" style="${vc}">${vd}</span></td></tr>`;
+      trs += `<tr><td><label class="go" for="tab-s-${sid(r.t)}"><b style="color:${r.c}">${r.t}</b> →</label></td><td>${price(r.p)}</td><td>${r.w.toFixed(1)}%</td><td style="color:${col}">${r.nc ? '<span class="mut">—</span>' : `${sgm(r.pl)} <span class="mut">${sgp(r.plp)}</span>`}</td><td>${c.missing ? '<span class="mut">—</span>' : `<b style="color:var(--gold)">${c.rate ?? ""}</b>/10`}</td><td><span class="tag ${TONE[c.tone ?? "y"] ?? "y"}">${c.tag ?? ""}</span></td><td><span class="vd" style="${vc}">${vd}</span></td></tr>`;
     }
     return h2("All positions on one line each", "tap a ticker to open its full page") + `<div class="panel pad"><div class="scroll"><table class="tbl sum"><tr><th>Stock</th><th>Price</th><th>Weight</th><th>Profit / loss</th><th>Rating</th><th>Call</th><th>Price zone</th></tr>${trs}</table></div></div>`;
   };
@@ -482,8 +515,8 @@ export function buildSkillDashboard(d: SkillData): string {
       const r = W[c.t];
       const color = r ? r.c : "#8E86D8";
       const fc = c.fcf;
-      const sub = r ? `${money(r.val)} · ${r.w.toFixed(1)}% · <span style="color:${r.pl >= 0 ? "var(--green)" : "var(--red)"}">${sgm(r.pl)}</span>` : "watchlist";
-      out += `<label class="panel stile" for="tab-s-${sid(c.t)}"><span class="tk" style="border-color:${color};color:${color}">${c.t}</span><span class="rt"><b>${Math.trunc(c.rate)}</b>/10</span><b class="n">${r ? r.n : c.name ?? c.t}</b><span class="s">${sub}</span><span class="tag ${TONE[c.tone ?? "y"] ?? "y"}">${c.tag}</span><span class="f">${fc[0]} ${rich(fc[1])}</span><i>Open full page →</i></label>`;
+      const sub = r ? `${money(r.val)} · ${r.w.toFixed(1)}%${r.nc ? "" : ` · <span style="color:${r.pl >= 0 ? "var(--green)" : "var(--red)"}">${sgm(r.pl)}</span>`}` : "watchlist";
+      out += `<label class="panel stile" for="tab-s-${sid(c.t)}"><span class="tk" style="border-color:${color};color:${color}">${c.t}</span><span class="rt">${c.missing ? "<b>—</b>" : `<b>${Math.trunc(c.rate)}</b>/10`}</span><b class="n">${r ? r.n : c.name ?? c.t}</b><span class="s">${sub}</span><span class="tag ${TONE[c.tone ?? "y"] ?? "y"}">${c.tag}</span><span class="f">${fc[0]} ${rich(fc[1])}</span><i>Open full page →</i></label>`;
     }
     return h2("Open a stock", "each one has its own page: all numbers, dashboards, history, price zones, dates") + `<div class="stiles">${out}</div>`;
   };
@@ -529,11 +562,11 @@ export function buildSkillDashboard(d: SkillData): string {
     const head = `<div class="snav"><label class="go" for="tab-stocks">← All stocks</label><div class="sks">${chips}</div></div>`;
     const rate = Math.trunc(c.rate);
     const pips = Array.from({ length: 10 }, (_v, j) => `<i class="pip${j < rate ? " on" : ""}" style="animation-delay:${(0.05 * j).toFixed(2)}s"></i>`).join("");
-    const title = `<div class="panel pad shead"><span class="tk big" style="border-color:${color};color:${color}">${c.t}</span><div class="nm"><b>${name}</b><small>${rich(c.one)}</small></div><div class="sr"><span class="tag ${tone}">${c.tag}</span><span class="rt"><b>${rate}</b>/10${qmark("Rating", "e")}</span></div><div class="pips" style="grid-column:1/-1;margin:4px 0 0">${pips}</div></div>`;
+    const title = `<div class="panel pad shead"><span class="tk big" style="border-color:${color};color:${color}">${c.t}</span><div class="nm"><b>${name}</b><small>${rich(c.one)}</small></div><div class="sr"><span class="tag ${tone}">${c.tag}</span><span class="rt">${c.missing ? "<b>—</b>" : `<b>${rate}</b>/10${qmark("Rating", "e")}`}</span></div><div class="pips" style="grid-column:1/-1;margin:4px 0 0">${pips}</div></div>`;
     let mine: string;
     if (r) {
       const col = r.pl >= 0 ? "var(--green)" : "var(--red)";
-      mine = `<div class="mine"><div><span class="l">Shares</span><b>${(+r.s.toFixed(4)).toString()}</b></div><div><span class="l">Your avg</span><b>$${fmtNum(r.a, 2)}</b></div><div><span class="l">Value</span><b>${money(r.val)}</b></div><div><span class="l">${T("Unrealized P/L")}</span><b style="color:${col}">${sgm(r.pl)} · ${sgp(r.plp)}</b></div><div><span class="l">${T("Weight", "e")}</span><b>${r.w.toFixed(1)}%</b></div></div>`;
+      mine = `<div class="mine"><div><span class="l">Shares</span><b>${(+r.s.toFixed(4)).toString()}</b></div><div><span class="l">Your avg</span><b>${r.nc ? "not given" : `$${fmtNum(r.a, 2)}`}</b></div><div><span class="l">Value</span><b>${money(r.val)}</b></div><div><span class="l">${T("Unrealized P/L")}</span>${r.nc ? "<b>—</b>" : `<b style="color:${col}">${sgm(r.pl)} · ${sgp(r.plp)}</b>`}</div><div><span class="l">${T("Weight", "e")}</span><b>${r.w.toFixed(1)}%</b></div></div>`;
     } else {
       mine = '<div class="mine"><div><span class="l">Status</span><b>Not owned — watchlist</b></div></div>';
     }
@@ -547,9 +580,11 @@ export function buildSkillDashboard(d: SkillData): string {
     const z = (d.zones ?? []).find((z) => z.t === c.t);
     let pr = "";
     if (z) pr += `<div class="cap">${T("Buy zone")} · fair · trim</div>` + zoneHtml(z, W, true);
-    if (c.range52 && r) pr += `<div class="cap" style="margin-top:18px">${T("52-wk range")}</div>` + rangeBar(c.range52[0], c.range52[1], r.p, r.a);
+    if (c.range52 && r) pr += `<div class="cap" style="margin-top:18px">${T("52-wk range")}</div>` + rangeBar(c.range52[0], c.range52[1], r.p, r.nc ? null : r.a);
     const [be, ba, bu] = c.f;
-    pr += `<div class="fore"><span class="ft">${T("12-month view", "s")} <em>(author estimate, not a forecast you can bank)</em></span><div class="fb"><span class="b1">Bear ${price(be)}</span><span class="b2">Base ${price(ba)}</span><span class="b3">Bull ${price(bu)}</span></div></div>`;
+    pr += c.missing || c.no_forecast
+      ? `<div class="fore"><span class="ft">${T("12-month view", "s")}</span><p class="mut" style="margin:6px 0 0">${c.missing ? "Not generated — regenerate the review to get bear / base / bull prices." : "No price range was given for this position."}</p></div>`
+      : `<div class="fore"><span class="ft">${T("12-month view", "s")} <em>(author estimate, not a forecast you can bank)</em></span><div class="fb"><span class="b1">Bear ${price(be)}</span><span class="b2">Base ${price(ba)}</span><span class="b3">Bull ${price(bu)}</span></div></div>`;
     parts.push(h2("Price: where it is and where it is worth buying or selling") + `<div class="panel pad">${pr}</div>`);
     let ks = "";
     (c.k ?? []).forEach(([a, b], j) => {
@@ -597,9 +632,9 @@ export function buildSkillDashboard(d: SkillData): string {
   // ---------- assemble (mirrors main()) ----------
   const rows: Row[] = d.positions.map((p) => {
     const cost = p.shares * p.avg, val = p.shares * p.price;
-    return { t: p.t, n: p.name ?? p.t, s: p.shares, a: p.avg, p: p.price, cost, val, pl: val - cost, plp: cost ? (val / cost - 1) * 100 : 0, c: p.color ?? "", w: 0 };
+    return { t: p.t, n: p.name ?? p.t, s: p.shares, a: p.avg, p: p.price, cost, val, pl: val - cost, plp: cost ? (val / cost - 1) * 100 : 0, c: p.color ?? "", w: 0, nc: Boolean(p.no_cost) };
   });
-  const TV = rows.reduce((s, r) => s + r.val, 0) || 1, TC = rows.reduce((s, r) => s + r.cost, 0);
+  const TV = rows.reduce((s, r) => s + r.val, 0) || 1, TC = rows.filter((r) => !r.nc).reduce((s, r) => s + r.cost, 0);
   rows.sort((a, b) => b.val - a.val);
   rows.forEach((r, i) => { r.w = (r.val / TV) * 100; r.c = r.c || PALETTE[i % PALETTE.length]; });
   const W: Record<string, Row> = Object.fromEntries(rows.map((r) => [r.t, r]));
@@ -646,7 +681,7 @@ export function buildSkillDashboard(d: SkillData): string {
     const tgt = lab ? pid : "stocks";
     css += `#tab-${pid}:checked~.nav label[for=tab-${tgt}]{background:var(--cyan);color:#0b1216;border-color:var(--cyan)}#tab-${pid}:checked~.nav label[for=tab-${tgt}] i{background:#0b121633;color:#0b1216}`;
   }
-  const top = `<div class="topbar"><b>${esc(m.title ?? "Portfolio review")}</b><span>Built ${m.build_date} · prices = ${m.price_date}</span></div>`;
+  const top = `<div class="topbar"><b>${m.title ?? "Portfolio review"}</b><span>Built ${m.build_date} · prices = ${m.price_date}</span></div>`;
   const pgnav = (i: number): string => {
     if (i >= mainN) return "";
     const prev = i ? `<label class="go" for="tab-${pages[i - 1][0]}">← ${pages[i - 1][1]}</label>` : "<span></span>";
@@ -656,7 +691,8 @@ export function buildSkillDashboard(d: SkillData): string {
   const sect = pages.map(([pid, , , htm], i) => `<section class="page" id="pg-${pid}">${htm}${pgnav(i)}</section>`).join("");
   const body = [`<style>${css}</style>`, top, radios, `<nav class="nav">${nav}</nav>`, `<div class="pages">${sect}</div>`].join("\n");
 
-  return TEMPLATE.replace("%%TITLE%%", esc(m.title ?? "Portfolio review")).replace("%%BODY%%", body);
+  // Function replacers: a "$&" or "$'" in the content must not be read as a replacement pattern.
+  return TEMPLATE.replace("%%TITLE%%", () => m.title ?? "Portfolio review").replace("%%BODY%%", () => body);
 }
 
 // CSS/theme shell copied verbatim from the skill's assets/template.html (+ a tiny resize reporter for the iframe host).

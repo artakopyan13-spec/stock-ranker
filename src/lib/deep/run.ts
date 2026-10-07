@@ -4,7 +4,7 @@ import { env } from "@/lib/env";
 import { anthropic, logUsage, usageFromMessage } from "@/lib/ai/client";
 import { gateFreshAnalysis, type DenyReason } from "@/lib/quota/gate";
 import { effectiveLimits } from "@/lib/quota/settings";
-import { spendToday } from "@/lib/quota/spend";
+import { spendToday, SYSTEM_SPEND_SHARE } from "@/lib/quota/spend";
 import { allWatchedSymbols } from "@/lib/watchlists";
 import { FreshAnalysisDeniedError } from "@/lib/analysis/service";
 import { DeepAnalysisOutput } from "@/lib/deep/schema";
@@ -91,7 +91,8 @@ When you have finished researching, return ONLY one minified JSON object — no 
     messages: [{ role: "user", content: prompt }],
   }, web ? {} : { timeout: 48_000, maxRetries: 0 }); // on-demand runs inside a 60s function
 
-  const searches = resp.content.filter((b): b is Anthropic.ServerToolUseBlock => b.type === "server_tool_use").length;
+  // Billed searches come from the usage counter; server_tool_use blocks can include non-search tool steps.
+  const searches = resp.usage.server_tool_use?.web_search_requests ?? resp.content.filter((b): b is Anthropic.ServerToolUseBlock => b.type === "server_tool_use").length;
   await logUsage("deep", e.NEWS_SEARCH_MODEL, usageFromMessage(resp.usage), { symbol, userId, webSearches: searches });
 
   if (resp.stop_reason === "refusal") return null;
@@ -196,7 +197,7 @@ export async function refreshDeepSystem(symbol: string, web = false): Promise<{ 
   if (!e.ANTHROPIC_API_KEY || e.DEMO_MODE) return { refreshed: false, reason: "no_key" };
   const limits = await effectiveLimits();
   if (limits.killSwitchManual) return { refreshed: false, reason: "kill_switch" };
-  if ((await spendToday()) >= limits.spendCeilingUsd) return { refreshed: false, reason: "spend_ceiling" };
+  if ((await spendToday()) >= limits.spendCeilingUsd * SYSTEM_SPEND_SHARE) return { refreshed: false, reason: "spend_ceiling" };
   const data = await generate(symbol.toUpperCase(), null, web);
   return { refreshed: Boolean(data) };
 }

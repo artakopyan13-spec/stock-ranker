@@ -7,6 +7,7 @@ import { isValidSymbol } from "@/lib/data";
 import { AI_ACTION_KINDS, gateAiAction } from "@/lib/quota/gate";
 import { runAssistantJsonContent } from "@/lib/ai/assistant";
 import { logUsage } from "@/lib/ai/client";
+import { classifyAiError } from "@/lib/ai/errors";
 import { Holding } from "@/lib/portfolio/schema";
 import { getPortfolioRow, parseHoldingsRow, savePortfolio, toPayload } from "@/lib/portfolio/store";
 import { parseActivityCsv } from "@/lib/portfolio/activity";
@@ -19,12 +20,16 @@ const IMAGE_TYPES = ["image/png", "image/jpeg", "image/webp", "image/gif"] as co
 const Body = z.object({
   kind: z.enum(["image", "pdf", "csv"]),
   mediaType: z.string().max(80).optional(),
-  dataBase64: z.string().max(9_000_000).optional(), // ~6.5 MB file cap for image/pdf
+  // Vercel rejects request bodies over 4.5 MB with a plain-text 413 before we ever run, so cap the
+  // base64 a bit under that (~3.1 MB file). The client downscales big images to fit.
+  dataBase64: z.string().max(4_200_000).optional(),
   text: z.string().max(2_000_000).optional(), // for csv
 });
 
+// Loose on purpose: one odd number from the model (negative, huge) shouldn't fail the whole file —
+// rows are validated against Holding individually below.
 const Extracted = z.object({
-  holdings: z.array(Holding),
+  holdings: z.array(z.object({ symbol: z.string(), shares: z.number().nullable(), avgCost: z.number().nullable(), valueUsd: z.number().nullable() })),
   note: z.string().nullable(),
 });
 
@@ -59,7 +64,8 @@ export async function POST(req: Request): Promise<Response> {
       notes: existing?.notes ?? null,
       alltime: JSON.stringify(result),
     });
-    return Response.json({ portfolio: await toPayload(row), imported: result.holdings.length, kind, note: `Read ${result.rowCount} activity rows.` });
+    const warn = result.warnings?.length ? ` ${result.warnings.length} item(s) couldn't be matched (e.g. sells with no buy in this export) — see the review's history tab.` : "";
+    return Response.json({ portfolio: await toPayload(row), imported: result.holdings.length, kind, note: `Read ${result.rowCount} activity rows.${warn}` });
   }
 
   // --- Image / PDF: gated vision extraction ---
@@ -82,13 +88,24 @@ export async function POST(req: Request): Promise<Response> {
       system: VISION_SYSTEM,
       content: [block, { type: "text", text: "Extract every stock position you can see." }],
       schema: Extracted,
-      maxTokens: 2000,
+      // ~60 tokens per position: 2000 truncated statements past ~30 positions mid-JSON.
+      maxTokens: 6000,
+      timeoutMs: 45_000,
     });
     await logUsage("portfolio", model, usage, { userId: user.id });
-    const holdings = mergeHoldings(value.holdings);
+    const valid = value.holdings.flatMap((h) => {
+      const r = Holding.safeParse({ ...h, symbol: h.symbol.trim().toUpperCase() });
+      return r.success ? [r.data] : [];
+    });
+    const holdings = mergeHoldings(valid);
     const row = await savePortfolio(user.id, { holdings, cashUsd: existing?.cashUsd ?? 0, notes: existing?.notes ?? null });
-    return Response.json({ portfolio: await toPayload(row), imported: value.holdings.length, kind, note: value.note });
+    const skipped = value.holdings.length - valid.length;
+    return Response.json({ portfolio: await toPayload(row), imported: valid.length, skipped, kind, note: value.note });
   } catch (err) {
-    return Response.json({ error: err instanceof Error ? err.message : "Could not read that file." }, { status: 400 });
+    const ai = classifyAiError(err);
+    if (ai) return Response.json({ error: ai.message, code: ai.code }, { status: ai.status });
+    console.error("[portfolio/import] extraction failed:", err instanceof Error ? err.message : err);
+    // Parse/validation failures (e.g. "Unexpected end of JSON input") mean nothing a user can act on.
+    return Response.json({ error: "Couldn't read the positions from that file. Try a clearer screenshot, or crop it to the holdings list." }, { status: 422 });
   }
 }

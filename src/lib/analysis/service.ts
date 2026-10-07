@@ -176,6 +176,9 @@ export async function persistAnalysis(args: {
   return stored;
 }
 
+/** Past this, a verification retry can't finish inside the 60s function cap. */
+const RETRY_BUDGET_MS = 20_000;
+
 /**
  * On-demand path: cached analysis if fresh, otherwise fetch → stream model → verify → store.
  * Emits progress events for the SSE route. One automatic retry on verification failure.
@@ -216,8 +219,11 @@ export async function getOrCreateAnalysis(
     throw new FreshAnalysisDeniedError(gate.reason, gate.message);
   }
 
+  const startedAt = Date.now();
   emit({ type: "status", message: "Fetching live market data…" });
-  const data = await loadDataForAnalysis(sym, { force: opts.force });
+  // The on-demand route has a 60s ceiling (Vercel Hobby) — skip the web-context searches there;
+  // the nightly batch/worker add it. `system` callers (seed script) have no ceiling and keep it.
+  const data = await loadDataForAnalysis(sym, { force: opts.force, webContext: opts.system === true });
   emit({ type: "data", sections: deriveDataSections(data) });
   emit({ type: "status", message: data.news.length ? `Analyzing with ${e.ANALYSIS_MODEL}…` : "No 7-day news found. Analyzing…" });
 
@@ -229,14 +235,20 @@ export async function getOrCreateAnalysis(
       previousTripwire,
       retryFeedback: feedback,
       onSection: attempt === 0 ? (key, value) => emit({ type: "section", key, value }) : undefined,
+      // The retry only gets what's left of the function's 60s, so it fails cleanly instead of being killed.
+      timeoutMs: attempt > 0 && !opts.system ? Math.max(5_000, 55_000 - (Date.now() - startedAt)) : undefined,
     });
-    const usage: Usage = await logUsage("analysis", result.model, result.usage as TokenUsage, { symbol: sym, userId: opts.userId ?? null });
+    // The retry is logged separately so one analysis never costs a user two credits.
+    const usage: Usage = await logUsage(attempt === 0 ? "analysis" : "analysis_retry", result.model, result.usage as TokenUsage, { symbol: sym, userId: opts.userId ?? null });
     try {
       const stored = await persistAnalysis({ data, result, source: opts.source ?? "ondemand", usage, previousTripwire });
       emit({ type: "done", analysis: stored.analysis, id: stored.id });
       return stored;
     } catch (err) {
       if (!(err instanceof VerificationFailedError)) throw err;
+      // Not enough of the 60s budget left for a second model call — fail now with the real reason
+      // rather than being killed mid-retry by the platform timeout.
+      if (!opts.system && Date.now() - startedAt > RETRY_BUDGET_MS) throw err;
       lastError = err;
       feedback = failureSummary(err.verification);
       emit({ type: "status", message: "Verification failed — retrying once with feedback…" });

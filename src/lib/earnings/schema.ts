@@ -31,7 +31,7 @@ export const EarningsReportOutput = z.object({
   quarterLabel: z.string(), // "Q1 FY2026"
   reportDate: z.string(), // YYYY-MM-DD
   timing: z.string(), // "After market close" / "Before open" / ""
-  headlineVerdict: z.enum(["beat", "mixed", "miss"]), // overall read
+  headlineVerdict: z.enum(["beat", "mixed", "miss", "unknown"]), // overall read; "unknown" when the figures weren't found
   priceReactionPct: z.number().nullable(), // post-earnings move %, or null
   metrics: z.array(EarningsMetric), // ~4-5 tiles
   revenueTrend: z.array(RevenuePoint), // last ~5 quarters, millions USD

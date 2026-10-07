@@ -28,6 +28,9 @@ export async function POST(req: Request): Promise<Response> {
   if (!ipRl.ok) return Response.json({ error: "Too many requests. Slow down a moment." }, { status: 429, headers: { "retry-after": String(ipRl.retryAfterSec) } });
 
   const user = await currentUser();
+  // Anonymous visitors can't force a rebuild of a still-fresh analysis (that would spend their one
+  // free try — or anyone's budget — on something already cached for everyone).
+  const force = user ? parsed.data.force === true : false;
 
   // Anonymous "try it once": grant a single fresh analysis per browser (cookie-tracked), only
   // when the result would actually be a fresh run (a cached-fresh hit stays free and doesn't burn it).
@@ -37,7 +40,7 @@ export async function POST(req: Request): Promise<Response> {
   if (!user) {
     const tried = /(?:^|;\s*)sr_try=1(?:;|$)/.test(req.headers.get("cookie") ?? "");
     const stored = await getLatestAnalysis(ticker).catch(() => null);
-    const willBeFresh = !stored || !isFresh(stored) || parsed.data.force === true;
+    const willBeFresh = !stored || !isFresh(stored);
     if (willBeFresh) {
       if (tried) anonUsed = true;
       else {
@@ -52,7 +55,7 @@ export async function POST(req: Request): Promise<Response> {
     async start(controller) {
       const send = (event: AnalysisEvent) => controller.enqueue(encoder.encode(`event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`));
       try {
-        await getOrCreateAnalysis(ticker, { force: parsed.data.force, onEvent: send, userId: user?.id ?? null, ip, allowAnon, anonUsed });
+        await getOrCreateAnalysis(ticker, { force, onEvent: send, userId: user?.id ?? null, ip, allowAnon, anonUsed });
       } catch (err) {
         if (err instanceof FreshAnalysisDeniedError) {
           // No cached analysis to fall back to — a soft notice, not an error (never a 500 for quota).

@@ -18,8 +18,8 @@ export async function GET(_req: Request, ctx: { params: Promise<{ ticker: string
 
   const user = await currentUser();
   if (!user) return Response.json({ error: "Sign in to export.", code: "login_required" }, { status: 401 });
-  const row = await db().user.findUnique({ where: { id: user.id }, select: { plan: true } });
-  if (!capsFor({ role: user.role, plan: row?.plan }).deepAnalysis) {
+  const row = await db().user.findUnique({ where: { id: user.id }, select: { plan: true, planRenewsAt: true } });
+  if (!capsFor({ role: user.role, plan: row?.plan, planRenewsAt: row?.planRenewsAt }).deepAnalysis) {
     return Response.json({ error: "Excel export is a Pro feature.", code: "upgrade" }, { status: 402 });
   }
 

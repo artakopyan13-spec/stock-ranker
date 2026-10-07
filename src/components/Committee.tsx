@@ -5,7 +5,9 @@ import type { CommitteeReport, SeatId, Stance } from "@/lib/committee/schema";
 import { SEAT_NAME, SEATS } from "@/lib/committee/schema";
 import { SeatAvatar } from "@/components/SeatAvatar";
 import { ProgressLine } from "@/components/ProgressLine";
+import { ReportNotice, type ReportNoticeView } from "@/components/ui";
 import { ago } from "@/lib/format";
+import { fetchJson, postJson } from "@/lib/fetch-json";
 
 const STANCE_CHIP: Record<Stance, string> = { bull: "chip-green", bear: "chip-red", neutral: "chip-muted" };
 const STANCE_TONE: Record<Stance, string> = { bull: "text-green", bear: "text-red", neutral: "text-muted" };
@@ -17,18 +19,18 @@ export function Committee({ symbol, signedIn }: { symbol: string; signedIn: bool
   const [report, setReport] = useState<CommitteeReport | null>(null);
   const [loading, setLoading] = useState(true);
   const [running, setRunning] = useState(false);
-  const [notice, setNotice] = useState<string | null>(null);
+  const [notice, setNotice] = useState<ReportNoticeView | null>(null);
   const [error, setError] = useState<string | null>(null);
+  /** True only when the debate was convened in this session — a cached replay is not "live". */
+  const [live, setLive] = useState(false);
 
   useEffect(() => {
     let alive = true;
-    void fetch(`/api/committee/${symbol}`)
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d: { report?: CommitteeReport } | null) => {
-        if (alive && d?.report) setReport(d.report);
-      })
-      .catch(() => undefined)
-      .finally(() => alive && setLoading(false));
+    void fetchJson<{ report?: CommitteeReport }>(`/api/committee/${symbol}`).then((r) => {
+      if (!alive) return;
+      if (r.ok && r.data?.report) setReport(r.data.report);
+      setLoading(false);
+    });
     return () => {
       alive = false;
     };
@@ -39,17 +41,15 @@ export function Committee({ symbol, signedIn }: { symbol: string; signedIn: bool
       setRunning(true);
       setNotice(null);
       setError(null);
-      try {
-        const res = await fetch(`/api/committee/${symbol}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ force }) });
-        const d = (await res.json()) as { report?: CommitteeReport; notice?: { message: string }; error?: string };
-        if (d.report) setReport(d.report);
-        if (d.notice) setNotice(d.notice.message);
-        if (d.error) setError(d.error);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Could not convene the committee.");
-      } finally {
-        setRunning(false);
+      const r = await postJson<{ report?: CommitteeReport; cached?: boolean; notice?: ReportNoticeView; error?: string }>(`/api/committee/${symbol}`, { force });
+      const d = r.data;
+      if (d?.report) {
+        setReport(d.report);
+        setLive(d.cached === false);
       }
+      if (d?.notice) setNotice(d.notice);
+      if (!r.ok) setError(r.error ?? "Could not convene the committee.");
+      setRunning(false);
     },
     [symbol],
   );
@@ -74,7 +74,7 @@ export function Committee({ symbol, signedIn }: { symbol: string; signedIn: bool
           <a href="/signin" className="btn btn-primary no-underline inline-block">Sign in to convene</a>
         )}
         <ProgressLine key={running ? "on" : "off"} active={running} estSeconds={40} label="The committee is debating" />
-        {notice && <div className="text-sm text-gold">{notice}</div>}
+        {notice && <div className="text-sm flex justify-center"><ReportNotice notice={notice} signedIn={signedIn} className="justify-center" /></div>}
         {error && <div className="text-sm text-red">{error}</div>}
         <p className="text-[0.65rem] text-dim">Uses one fresh-analysis credit. Cached after that, free for everyone. Not financial advice.</p>
       </div>
@@ -84,7 +84,8 @@ export function Committee({ symbol, signedIn }: { symbol: string; signedIn: bool
   const c = report.chair;
   return (
     <div className="space-y-4">
-      {notice && <div className="card p-3 text-sm border-l-2 border-l-gold text-muted">{notice}</div>}
+      {notice && <div className="card p-3 text-sm border-l-2 border-l-gold"><ReportNotice notice={notice} signedIn={signedIn} /></div>}
+      {error && <div className="card p-3 text-sm border-l-2 border-l-red text-red">{error}</div>}
 
       {/* Verdict first — the straight answer */}
       <div className="card p-5 border-l-2 border-l-gold space-y-3">
@@ -129,7 +130,7 @@ export function Committee({ symbol, signedIn }: { symbol: string; signedIn: bool
       </div>
 
       {/* The debate, as a group chat */}
-      {report.debate.length > 0 && <DebateChat key={report.createdAt} debate={report.debate} />}
+      {report.debate.length > 0 && <DebateChat key={report.createdAt} debate={report.debate} live={live} />}
 
       <div className="flex items-center justify-between text-xs text-dim">
         <span>Convened {ago(report.createdAt)}{report.basedOnAnalysisAt ? ` · from analysis of ${report.basedOnAnalysisAt.slice(0, 10)}` : ""} · {report.model}</span>
@@ -141,7 +142,7 @@ export function Committee({ symbol, signedIn }: { symbol: string; signedIn: bool
 }
 
 /** Renders the seat-to-seat challenges as a chat thread that types itself out, so you watch them argue. */
-function DebateChat({ debate }: { debate: CommitteeReport["debate"] }) {
+function DebateChat({ debate, live }: { debate: CommitteeReport["debate"]; live: boolean }) {
   const [revealed, setRevealed] = useState(1);
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -155,7 +156,7 @@ function DebateChat({ debate }: { debate: CommitteeReport["debate"] }) {
     <div className="card p-4">
       <div className="flex items-center justify-between mb-3">
         <div className="text-xs uppercase tracking-wider text-muted">The debate</div>
-        {revealed < debate.length && <span className="text-[0.62rem] text-dim flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-gold animate-pulse" />live</span>}
+        {live && revealed < debate.length && <span className="text-[0.62rem] text-dim flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-gold animate-pulse" />live</span>}
       </div>
       <div ref={scrollRef} className="space-y-3">
         {debate.slice(0, revealed).map((d, i) => {

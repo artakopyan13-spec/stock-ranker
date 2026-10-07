@@ -5,7 +5,7 @@ import { env } from "@/lib/env";
 import { anthropic, logUsage, usageFromMessage } from "@/lib/ai/client";
 import { gateFreshAnalysis, type DenyReason } from "@/lib/quota/gate";
 import { effectiveLimits } from "@/lib/quota/settings";
-import { spendToday } from "@/lib/quota/spend";
+import { spendToday, SYSTEM_SPEND_SHARE } from "@/lib/quota/spend";
 import { MacroBriefOutput } from "@/lib/macro/schema";
 import { CANDIDATE_ROWS, metaOf, pickBest, type ReportMeta } from "@/lib/reports/freshness";
 
@@ -69,7 +69,8 @@ Hard rules: NEVER invent a quote, a specific number, or a dated event. Prefer le
     messages: [{ role: "user", content: prompt }],
   }, web ? {} : { timeout: 48_000, maxRetries: 0 }); // on-demand runs inside a 60s function
 
-  const searches = resp.content.filter((b): b is Anthropic.ServerToolUseBlock => b.type === "server_tool_use").length;
+  // Billed searches come from the usage counter; server_tool_use blocks can include non-search tool steps.
+  const searches = resp.usage.server_tool_use?.web_search_requests ?? resp.content.filter((b): b is Anthropic.ServerToolUseBlock => b.type === "server_tool_use").length;
   await logUsage("macro", e.NEWS_SEARCH_MODEL, usageFromMessage(resp.usage), { userId, webSearches: searches });
 
   if (resp.stop_reason === "refusal" || !resp.parsed_output) return null;
@@ -108,7 +109,7 @@ export async function refreshMacroBriefSystem(web = false): Promise<{ refreshed:
   if (!e.ANTHROPIC_API_KEY || e.DEMO_MODE) return { refreshed: false, reason: "no_key" };
   const limits = await effectiveLimits();
   if (limits.killSwitchManual) return { refreshed: false, reason: "kill_switch" };
-  if ((await spendToday()) >= limits.spendCeilingUsd) return { refreshed: false, reason: "spend_ceiling" };
+  if ((await spendToday()) >= limits.spendCeilingUsd * SYSTEM_SPEND_SHARE) return { refreshed: false, reason: "spend_ceiling" };
   const data = await generateBrief(null, web);
   return { refreshed: Boolean(data) };
 }

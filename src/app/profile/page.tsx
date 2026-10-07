@@ -3,7 +3,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { currentUser } from "@/auth";
 import { db } from "@/lib/db";
-import { effectiveLimits } from "@/lib/quota/settings";
+import { capsFor, getPlan } from "@/lib/plans";
 import { userAnalysesToday } from "@/lib/quota/spend";
 import { listWatchlists } from "@/lib/watchlists";
 import { setUsername, setWatchlistPublic } from "@/lib/profile-actions";
@@ -16,14 +16,16 @@ export default async function ProfilePage({ searchParams }: PageProps<"/profile"
   const err = typeof sp.err === "string" ? sp.err : null;
   const user = await currentUser();
   if (!user) redirect("/signin");
-  const [limits, used, row, lists, screens] = await Promise.all([
-    effectiveLimits(),
+  const [used, row, lists, screens] = await Promise.all([
     userAnalysesToday(user.id),
-    db().user.findUnique({ where: { id: user.id }, select: { dailyQuota: true, createdAt: true, email: true, username: true } }),
+    db().user.findUnique({ where: { id: user.id }, select: { dailyQuota: true, createdAt: true, email: true, username: true, role: true, plan: true } }),
     listWatchlists(user.id),
     db().savedScreen.findMany({ where: { userId: user.id }, orderBy: { createdAt: "desc" } }),
   ]);
-  const quota = row?.dailyQuota ?? limits.freeDailyFresh;
+  // Same rule as the quota gate: admins/unlimited plans are exempt, a per-user override wins over the plan.
+  const caps = capsFor(row ?? { role: user.role });
+  const quota = caps.unlimited ? "unlimited" : (row?.dailyQuota ?? caps.freshPerDay);
+  const planName = row?.role === "admin" ? "Admin" : getPlan(caps.planId).name;
   return (
     <div className="space-y-6 max-w-3xl">
       <div>
@@ -43,7 +45,7 @@ export default async function ProfilePage({ searchParams }: PageProps<"/profile"
       <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
         <div className="card-2 p-4"><div className="text-xs uppercase text-muted">Fresh analyses today</div><div className="text-2xl font-semibold">{used} / {quota}</div><div className="text-xs text-muted">resets at midnight UTC</div></div>
         <div className="card-2 p-4"><div className="text-xs uppercase text-muted">Cached views</div><div className="text-2xl font-semibold text-green">unlimited</div></div>
-        <div className="card-2 p-4"><div className="text-xs uppercase text-muted">Plan</div><div className="text-2xl font-semibold">Free</div></div>
+        <div className="card-2 p-4"><div className="text-xs uppercase text-muted">Plan</div><div className="text-2xl font-semibold">{planName}</div></div>
       </div>
 
       <section>

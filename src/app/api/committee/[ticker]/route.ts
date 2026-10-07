@@ -36,8 +36,8 @@ export async function POST(req: Request, ctx: RouteContext<"/api/committee/[tick
   // Feature gate: the Investment Committee is a paid perk. Signed-in free users get an upgrade
   // nudge; anonymous visitors fall through to the login/quota gate inside getOrCreateCommittee.
   if (user) {
-    const row = await db().user.findUnique({ where: { id: user.id }, select: { plan: true } });
-    if (!capsFor({ role: user.role, plan: row?.plan }).committee) {
+    const row = await db().user.findUnique({ where: { id: user.id }, select: { plan: true, planRenewsAt: true } });
+    if (!capsFor({ role: user.role, plan: row?.plan, planRenewsAt: row?.planRenewsAt }).committee) {
       return Response.json(
         { notice: { reason: "user_quota", message: "The Investment Committee is a paid feature. Upgrade to convene 5 AI analysts on any stock." } },
         { status: 200 },

@@ -3,7 +3,7 @@ import { env } from "@/lib/env";
 import { streamAssistant, type ChatTurn } from "@/lib/ai/assistant";
 import { logUsage } from "@/lib/ai/client";
 import { AI_ACTION_KINDS, gateAiAction } from "@/lib/quota/gate";
-import type { DenyReason } from "@/lib/quota/gate";
+import type { DenyReason, GateResult } from "@/lib/quota/gate";
 
 export const CHAT_KIND = "chat";
 
@@ -38,13 +38,18 @@ export async function runChatTurn(args: {
   message: string;
   symbol?: string;
   emit: (e: ChatEvent) => void;
+  /** A gate result the caller already computed (e.g. to avoid building context for a denied
+   *  request). Passing it skips a second check, which would spend a second rate-limit slot. */
+  gate?: GateResult;
 }): Promise<void> {
-  const gate = await gateAiAction({
-    userId: args.userId,
-    ip: args.ip,
-    kinds: AI_ACTION_KINDS,
-    dailyCap: env().FREE_DAILY_CHAT_MESSAGES,
-  });
+  const gate =
+    args.gate ??
+    (await gateAiAction({
+      userId: args.userId,
+      ip: args.ip,
+      kinds: AI_ACTION_KINDS,
+      dailyCap: env().FREE_DAILY_CHAT_MESSAGES,
+    }));
   if (!gate.allow) {
     args.emit({ type: "notice", reason: gate.reason, message: gate.message });
     return;

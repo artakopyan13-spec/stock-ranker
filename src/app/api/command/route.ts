@@ -6,6 +6,7 @@ import { env } from "@/lib/env";
 import { loadUniverse } from "@/lib/universe";
 import { AI_ACTION_KINDS, gateAiAction } from "@/lib/quota/gate";
 import { logUsage } from "@/lib/ai/client";
+import { classifyAiError } from "@/lib/ai/errors";
 import { heuristicIntent, intentToResult, llmIntent } from "@/lib/nl/parse";
 
 export const dynamic = "force-dynamic";
@@ -23,12 +24,14 @@ export async function POST(req: Request): Promise<Response> {
   const ipRl = await rateLimit(`ip:${ip}`);
   if (!ipRl.ok) return Response.json({ error: "Too many requests. Slow down a moment." }, { status: 429, headers: { "retry-after": String(ipRl.retryAfterSec) } });
 
-  const universe = await loadUniverse();
-  const symbols = new Set(universe.map((r) => r.symbol));
-
-  // Zero-cost fast path: bare/$-prefixed known tickers need no model call and no login.
-  const fast = heuristicIntent(q, symbols);
+  // Zero-cost fast path: uppercase/$-prefixed tickers need no model call, no login and no DB read.
+  const fast = heuristicIntent(q, new Set());
   if (fast) return Response.json({ result: intentToResult(fast) });
+
+  // Still free: lowercase tokens that match an already-analyzed ticker ("nvda").
+  const universe = await loadUniverse();
+  const known = heuristicIntent(q, new Set(universe.map((r) => r.symbol)));
+  if (known) return Response.json({ result: intentToResult(known) });
 
   const user = await currentUser();
   const gate = await gateAiAction({ userId: user?.id ?? null, ip, kinds: AI_ACTION_KINDS, dailyCap: env().FREE_DAILY_CHAT_MESSAGES });
@@ -43,6 +46,9 @@ export async function POST(req: Request): Promise<Response> {
     await logUsage("command", model, usage, { userId: user?.id ?? null });
     return Response.json({ result: intentToResult(value) });
   } catch (err) {
-    return Response.json({ result: { action: "answer", reply: err instanceof Error ? `I couldn't parse that (${err.message}). Try a ticker or “cash machines under 20x FCF”.` : "I couldn't parse that." } });
+    // Never echo raw provider/SDK text to the user.
+    const ai = classifyAiError(err);
+    if (!ai) console.error("[command] intent parse failed:", err instanceof Error ? err.message : err);
+    return Response.json({ result: { action: "answer", reply: ai ? ai.message : "I couldn't parse that. Try a ticker (AAPL) or “cash machines under 20x FCF”." } });
   }
 }

@@ -75,6 +75,9 @@ if (e.ACCESS_CODE) {
   );
 }
 
+/** How often an existing session re-reads its user row (ban / admin removal). */
+const SESSION_RECHECK_MS = 5 * 60 * 1000;
+
 /** Providers that prove the person controls the email. Only these may ever grant admin. */
 const VERIFIED_PROVIDERS = new Set(["google", "email-code", "code", "dev"]);
 
@@ -130,7 +133,8 @@ if (emailCodeLoginEnabled()) {
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
   adapter: PrismaAdapter(db()),
-  session: { strategy: "jwt" },
+  // 14 days rather than the 30-day default, so a compromised or revoked session can't linger.
+  session: { strategy: "jwt", maxAge: 14 * 24 * 3600 },
   trustHost: true,
   providers,
   pages: { signIn: "/signin" },
@@ -156,6 +160,17 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
             await db().user.update({ where: { id: row.id }, data: { role: "admin" } });
           }
         }
+        token.checkedAt = Date.now();
+        return token;
+      }
+      // Role and ban are otherwise frozen into the token for its whole lifetime: a banned user kept
+      // working, and someone removed from ADMIN_EMAILS stayed admin. Re-check every few minutes.
+      // This only ever DOWNGRADES — a refresh never escalates privileges.
+      if (token.uid && Date.now() - ((token.checkedAt as number | undefined) ?? 0) > SESSION_RECHECK_MS) {
+        const row = await db().user.findUnique({ where: { id: token.uid as string }, select: { banned: true, email: true } });
+        if (!row || row.banned) return null; // ends the session
+        if (token.role === "admin" && roleFor(row.email) !== "admin") token.role = "user";
+        token.checkedAt = Date.now();
       }
       return token;
     },

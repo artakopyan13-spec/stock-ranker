@@ -3,7 +3,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { currentUser } from "@/auth";
 import { db } from "@/lib/db";
-import { setUsername, setDisplayName, deleteMyData } from "@/lib/profile-actions";
+import { setUsername, setDisplayName, deleteMyData, deletePortfolioData } from "@/lib/profile-actions";
 
 export const metadata: Metadata = { title: "Settings" };
 export const dynamic = "force-dynamic";
@@ -16,12 +16,14 @@ export default async function SettingsPage({ searchParams }: PageProps<"/setting
   const err = typeof sp.err === "string" ? sp.err : null;
   const ok = sp.ok === "1";
   const deleted = sp.deleted === "1";
+  const deletedPortfolio = sp.deleted === "portfolio";
 
   return (
     <div className="max-w-2xl mx-auto space-y-6">
       <h1 className="text-2xl font-semibold">Settings</h1>
       {ok && <div className="card p-3 text-sm border-l-2 border-l-green text-green">Saved.</div>}
       {deleted && <div className="card p-3 text-sm border-l-2 border-l-gold text-gold">Your watchlists and saved screens were deleted.</div>}
+      {deletedPortfolio && <div className="card p-3 text-sm border-l-2 border-l-gold text-gold">Your portfolio, its review and its chat history were deleted.</div>}
 
       <section className="card p-5 space-y-4">
         <h2 className="text-sm font-semibold uppercase tracking-wider text-muted">Account</h2>
@@ -47,6 +49,11 @@ export default async function SettingsPage({ searchParams }: PageProps<"/setting
         <p className="text-sm text-muted">Delete all of your watchlists and saved screens. This cannot be undone. Your account stays.</p>
         <form action={deleteMyData}>
           <button type="submit" className="btn" style={{ borderColor: "var(--red)", color: "var(--red)" }}>Delete my watchlists &amp; screens</button>
+        </form>
+        <p className="text-sm text-muted pt-2">Delete your saved portfolio (holdings, uploaded activity, AI review) and its chat history. This cannot be undone.</p>
+        <form action={deletePortfolioData} className="flex flex-wrap items-center gap-3">
+          <label className="text-xs text-muted flex items-center gap-2"><input type="checkbox" name="confirm" required /> Yes, permanently delete my portfolio data</label>
+          <button type="submit" className="btn" style={{ borderColor: "var(--red)", color: "var(--red)" }}>Delete my portfolio &amp; chat history</button>
         </form>
       </section>
 

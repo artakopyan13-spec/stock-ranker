@@ -5,7 +5,7 @@ import { rateLimit } from "@/lib/quota/ratelimit";
 import { isValidSymbol } from "@/lib/data";
 import { Holding, type Holding as HoldingType } from "@/lib/portfolio/schema";
 import { getPortfolioRow, parseHoldingsRow, savePortfolio, toPayload } from "@/lib/portfolio/store";
-import { parseHoldings } from "@/lib/portfolio/parse";
+import { parseHoldingsWithStats } from "@/lib/portfolio/parse";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -45,22 +45,27 @@ export async function POST(req: Request): Promise<Response> {
   // Structured `holdings` (e.g. removing a row) replaces the set; a text paste MERGES into what's
   // already there — newly parsed symbols overwrite their old entry, the rest are kept.
   let holdings: HoldingType[];
+  let imported: number | null = null;
+  let skipped = 0;
   if (parsed.data.holdings) {
     holdings = parsed.data.holdings;
   } else {
-    const fromText = parsed.data.text ? parseHoldings(parsed.data.text) : [];
+    const stats = parsed.data.text ? parseHoldingsWithStats(parsed.data.text) : { holdings: [], skipped: 0 };
+    const fromText = stats.holdings.filter((h) => Holding.safeParse(h).success);
+    imported = parsed.data.text ? fromText.length : null;
+    skipped = stats.skipped + (stats.holdings.length - fromText.length);
     const bySymbol = new Map<string, HoldingType>();
     for (const h of existing ? parseHoldingsRow(existing) : []) bySymbol.set(h.symbol, h);
     for (const h of fromText) bySymbol.set(h.symbol, h); // paste wins per symbol
     holdings = [...bySymbol.values()];
   }
-  holdings = holdings.filter((h) => isValidSymbol(h.symbol)).slice(0, 60);
+  holdings = holdings.filter((h) => isValidSymbol(h.symbol) && Holding.safeParse(h).success).slice(0, 60);
 
   const row = await savePortfolio(user.id, {
     holdings,
     cashUsd: parsed.data.cashUsd ?? existing?.cashUsd ?? 0,
     newCashUsd: parsed.data.newCashUsd ?? existing?.newCashUsd ?? 0,
-    notes: parsed.data.notes ?? existing?.notes ?? null,
+    notes: parsed.data.notes !== undefined ? parsed.data.notes : (existing?.notes ?? null), // null clears
   });
-  return Response.json({ portfolio: await toPayload(row) });
+  return Response.json({ portfolio: await toPayload(row), imported, skipped });
 }
