@@ -60,8 +60,11 @@ if (e.ACCESS_CODE) {
       credentials: { email: { label: "Email", type: "email" }, code: { label: "Access code", type: "password" } },
       async authorize(creds, request) {
         const email = typeof creds?.email === "string" ? creds.email.trim().toLowerCase() : "";
-        const code = typeof creds?.code === "string" ? creds.code : "";
-        const expected = env().ACCESS_CODE ?? "";
+        // Trim both: a code pasted into the hosting dashboard (or the form) with a stray space or line
+        // break must not make the correct code fail.
+        const code = typeof creds?.code === "string" ? creds.code.trim() : "";
+        const expected = (env().ACCESS_CODE ?? "").trim();
+        if (!expected) return null; // never match an empty code
         if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return null;
         // Lock out after repeated failures per IP and per email, so the code can't be brute-forced.
         const subjects = [`ip:${request ? clientIp(request) : "unknown"}`, `email:${email}`];
