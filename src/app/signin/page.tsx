@@ -11,7 +11,7 @@ export const metadata: Metadata = { title: "Sign in" };
 export const dynamic = "force-dynamic";
 
 const ERRORS: Record<string, string> = {
-  admin: "That email and access code didn't match.",
+  admin: "That email and access code didn't match — or there were too many attempts. Wait 10 minutes and try again.",
   profile: "Couldn't sign you in with that email. If this is an admin account, use the admin sign-in below.",
 };
 

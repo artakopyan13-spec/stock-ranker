@@ -6,6 +6,8 @@ import { PrismaAdapter } from "@auth/prisma-adapter";
 import { db } from "@/lib/db";
 import { env } from "@/lib/env";
 import { normalizeEmail, isValidEmail, emailCodeLoginEnabled, verifyEmailCode } from "@/lib/auth/otp";
+import { recordSignInFailure, signInLocked } from "@/lib/quota/ratelimit";
+import { clientIp } from "@/lib/request";
 
 declare module "next-auth" {
   interface Session {
@@ -56,14 +58,20 @@ if (e.ACCESS_CODE) {
       id: "code",
       name: "Access code",
       credentials: { email: { label: "Email", type: "email" }, code: { label: "Access code", type: "password" } },
-      async authorize(creds) {
+      async authorize(creds, request) {
         const email = typeof creds?.email === "string" ? creds.email.trim().toLowerCase() : "";
         const code = typeof creds?.code === "string" ? creds.code : "";
         const expected = env().ACCESS_CODE ?? "";
         if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return null;
+        // Lock out after repeated failures per IP and per email, so the code can't be brute-forced.
+        const subjects = [`ip:${request ? clientIp(request) : "unknown"}`, `email:${email}`];
+        if (await signInLocked(subjects)) return null;
         const a = Buffer.from(code);
         const b = Buffer.from(expected);
-        if (a.length !== b.length || !timingSafeEqual(a, b)) return null;
+        if (a.length !== b.length || !timingSafeEqual(a, b)) {
+          await recordSignInFailure(subjects);
+          return null;
+        }
         const user = await db().user.upsert({
           where: { email },
           create: { email, name: email.split("@")[0], role: roleFor(email), emailVerified: new Date() },

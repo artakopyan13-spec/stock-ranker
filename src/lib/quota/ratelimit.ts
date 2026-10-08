@@ -41,3 +41,28 @@ export async function pruneRateLimits(now = new Date(), max?: number): Promise<n
   if (stale.length === 0) return 0;
   return (await db().rateLimit.deleteMany({ where: { key: { in: stale.map((r) => r.key) } } })).count;
 }
+
+/** Failed sign-in attempts allowed per subject (IP, email) per window before it locks. */
+const SIGNIN_MAX_FAILURES = 5;
+const SIGNIN_WINDOW_MS = 10 * 60_000; // must stay ≤ the 10-minute prune age above
+
+const signinKey = (subject: string, now: Date) => `signin:${subject}:10m:${Math.floor(now.getTime() / SIGNIN_WINDOW_MS)}`;
+
+/**
+ * Brute-force guard for secret-based sign-in (the admin access code). Without it a script could try
+ * every code against the admin's (not secret) email in minutes. True when ANY subject is locked.
+ */
+export async function signInLocked(subjects: string[], now = new Date()): Promise<boolean> {
+  const rows = await db().rateLimit.findMany({ where: { key: { in: subjects.map((s) => signinKey(s, now)) } }, select: { count: true } });
+  return rows.some((r) => r.count >= SIGNIN_MAX_FAILURES);
+}
+
+/** Records one failed attempt against every subject. */
+export async function recordSignInFailure(subjects: string[], now = new Date()): Promise<void> {
+  await Promise.all(
+    subjects.map((s) => {
+      const key = signinKey(s, now);
+      return db().rateLimit.upsert({ where: { key }, create: { key, count: 1, windowStart: now }, update: { count: { increment: 1 } } });
+    }),
+  );
+}
